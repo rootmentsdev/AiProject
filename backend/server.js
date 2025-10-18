@@ -4,7 +4,7 @@ const cors = require('cors');
 const app = express();
 
 // ✅ Set API key directly in server.js (no .env file needed)
-const OPENROUTER_API_KEY = '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';
+const OPENROUTER_API_KEY = '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';
 process.env.OPENROUTER_API_KEY = OPENROUTER_API_KEY;
 
 console.log("🔐 Loaded API Key:", OPENROUTER_API_KEY.slice(0, 10) + '...');

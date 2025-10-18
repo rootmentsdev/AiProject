@@ -1,89 +1,76 @@
 class DSRPrompts {
   getDSRAnalysisPrompt(dsrData) {
-    return `You are an AI analyst specializing in Daily Sales Report (DSR) analysis for Suitor Guy Kerala retail stores. 
-Your task is to analyze the DSR data and identify performance issues, trends, and provide actionable insights.
+    return `# Bad Performing Stores Analysis
 
-### 🧠 Analysis Focus Areas:
+You are an AI analyst specializing in Daily Sales Report (DSR) analysis for Suitor Guy Kerala retail stores.
 
-1. **Store Performance Comparison**
-   - Identify top and bottom performing stores
-   - Compare current vs previous periods (L2L - Like for Like)
-   - Analyze conversion rates and walk-in numbers
+## 📊 Analysis Task:
+Identify and display ONLY the bad performing stores from the DSR data. Focus only on stores with poor performance.
 
-2. **Key Performance Indicators**
-   - Bills FTD (Figure To Date) vs MTD (Month To Date)
-   - Quantity trends and comparisons
-   - Walk-in numbers and conversion rates
-   - Loss of sales analysis
+## 🎯 Bad Performing Store Criteria:
 
-3. **Problem Identification**
-   - Stores with negative L2L percentages
-   - Low conversion rates
-   - High loss of sales
-   - Declining walk-in numbers
+### **BAD PERFORMING STORE CRITERIA:**
+A store is considered BAD PERFORMING if:
+- **Conversion % < 70%** → Bad performing store
+- **OR any other poor performance indicators**
 
-4. **Actionable Recommendations**
-   - Specific actions for underperforming stores
-   - Marketing strategies for low walk-ins
-   - Staff training needs for poor conversion
-   - Inventory management improvements
+## ✅ Your Tasks:
 
-### 🧾 Expected JSON Output:
+1. **Find ONLY bad performing stores** - Skip good performing stores
+2. **Display details** for each bad performing store:
+   - Store Name
+   - Conversion Rate
+   - Bills Performance
+   - Quantity Performance
+   - Walk-ins
+   - Loss of Sale
+   - ABS (Average Bill Size)
+   - Why it's performing badly
+   - Suggested actions to improve
+3. **Show ONLY bad performing stores** in the results
+4. **Focus on problems and solutions**
+
+## 🧾 Expected JSON Output:
 
 {
   "analysisSummary": {
     "totalStores": "[number]",
+    "badPerformingStores": "[number of bad performing stores]",
     "analysisPeriod": "December 2025",
-    "overallPerformance": "[Brief summary]",
-    "keyFindings": "[Main insights]"
+    "keyFindings": "[Summary of bad performing stores only]"
   },
-  "storePerformance": [
+  "badPerformingStores": [
     {
       "storeName": "[Store Name]",
-      "performance": "EXCELLENT/GOOD/AVERAGE/POOR",
-      "billsL2L": "[percentage]",
-      "qtyL2L": "[percentage]",
-      "walkInL2L": "[percentage]",
       "conversionRate": "[percentage]",
-      "keyIssues": ["Issue 1", "Issue 2"],
-      "recommendations": ["Action 1", "Action 2"],
-      "priority": "HIGH/MEDIUM/LOW"
+      "billsPerformance": "[percentage]",
+      "quantityPerformance": "[percentage]",
+      "walkIns": "[number]",
+      "lossOfSale": "[number]",
+      "absValue": "[value]",
+      "whyBadPerforming": "[Reason why store is performing badly]",
+      "suggestedActions": "[Actions to improve performance]"
     }
   ],
-  "topPerformers": [
+  "summaryTable": [
     {
       "storeName": "[Store Name]",
-      "reason": "[Why it's performing well]",
-      "metrics": "[Key metrics]"
+      "conversionPercent": "[percentage]",
+      "billsPercent": "[percentage]",
+      "quantityPercent": "[percentage]",
+      "whyBadPerforming": "[Reason]",
+      "suggestedAction": "[Action to improve]"
     }
-  ],
-  "underperformers": [
-    {
-      "storeName": "[Store Name]",
-      "issues": ["Issue 1", "Issue 2"],
-      "impact": "[Business impact]",
-      "actionPlan": ["Action 1", "Action 2"]
-    }
-  ],
-  "recommendations": {
-    "immediate": ["Action 1", "Action 2"],
-    "shortTerm": ["Action 1", "Action 2"],
-    "longTerm": ["Action 1", "Action 2"]
-  },
-  "riskAssessment": [
-    "Risk 1: [Description] - Mitigation: [Action]",
-    "Risk 2: [Description] - Mitigation: [Action]"
   ]
 }
 
-### 📌 Key Instructions:
-1. Focus on actionable insights for store improvement
-2. Identify specific stores that need immediate attention
-3. Provide clear recommendations with business impact
-4. Highlight both positive and negative trends
-5. Keep analysis data-driven and practical
-6. Pay special attention to stores with negative L2L percentages
-7. Identify stores with low conversion rates and high loss of sales
+## 📌 Key Instructions:
+
+1. **Show ONLY bad performing stores** - Don't include good performing stores
+2. **Focus on problems** - Explain why each store is performing badly
+3. **Provide solutions** - Suggest specific actions to improve
+4. **Skip good performers** - Only show stores with conversion < 70% or other issues
+5. **Detailed analysis** - Focus on what's wrong and how to fix it
 
 ---
 

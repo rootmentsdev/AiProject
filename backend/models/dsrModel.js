@@ -110,8 +110,8 @@ class DSRModel {
         throw new Error("AI service returned empty response. Please try again.");
       }
       
-      // Clean and parse the response
-      const cleanedResponse = this.cleanAIResponse(raw);
+      // Clean and parse the JSON response
+      const cleanedResponse = this.cleanJSON(raw);
       
       try {
         const parsed = JSON.parse(cleanedResponse);
@@ -119,9 +119,7 @@ class DSRModel {
         return parsed;
       } catch (parseError) {
         console.error("❌ JSON Parse Error:", parseError.message);
-        console.error("❌ Problematic JSON:", cleanedResponse.substring(0, 500));
-        
-        // Return a fallback response if JSON parsing fails
+        console.log("🔄 Creating fallback response");
         return this.createFallbackResponse(dsrData);
       }
       
@@ -156,77 +154,45 @@ class DSRModel {
     }
   }
 
-  cleanAIResponse(raw) {
-    let cleanedResponse = raw.trim();
+  cleanJSON(jsonString) {
+    let cleaned = jsonString.trim();
     
-    console.log("🔍 Raw AI Response:", cleanedResponse.substring(0, 200) + "...");
-    
-    // Extract JSON from markdown code blocks if present
-    if (cleanedResponse.includes('```json')) {
-      const jsonMatch = cleanedResponse.match(/```json\s*([\s\S]*?)\s*```/);
-      if (jsonMatch) {
-        cleanedResponse = jsonMatch[1].trim();
-      }
-    } else if (cleanedResponse.includes('```')) {
-      const jsonMatch = cleanedResponse.match(/```\s*([\s\S]*?)\s*```/);
-      if (jsonMatch) {
-        cleanedResponse = jsonMatch[1].trim();
-      }
-    }
-    
-    // Remove any text before the first { if it exists
-    if (!cleanedResponse.startsWith('{')) {
-      const firstBrace = cleanedResponse.indexOf('{');
+    // Remove any text before the first {
+    if (!cleaned.startsWith('{')) {
+      const firstBrace = cleaned.indexOf('{');
       if (firstBrace !== -1) {
-        cleanedResponse = cleanedResponse.substring(firstBrace);
+        cleaned = cleaned.substring(firstBrace);
       }
     }
     
-    // Find JSON object in the response
-    const jsonStart = cleanedResponse.indexOf('{');
-    const jsonEnd = cleanedResponse.lastIndexOf('}');
-    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-      cleanedResponse = cleanedResponse.substring(jsonStart, jsonEnd + 1);
+    // Remove any text after the last }
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (lastBrace !== -1) {
+      cleaned = cleaned.substring(0, lastBrace + 1);
     }
     
     // Fix common JSON syntax errors
-    cleanedResponse = this.fixJSONSyntax(cleanedResponse);
+    // Fix missing quotes around percentage values
+    cleaned = cleaned.replace(/: (\d+\.?\d*%)/g, ': "$1"');
     
-    console.log("🧹 Cleaned JSON:", cleanedResponse.substring(0, 200) + "...");
-    
-    return cleanedResponse;
-  }
-
-  fixJSONSyntax(jsonString) {
-    let fixed = jsonString;
+    // Fix missing quotes around string values that should be quoted
+    cleaned = cleaned.replace(/: ([^",}\]]+)(?=[,}])/g, (match, value) => {
+      // Only quote if it's not already a number, boolean, or null
+      if (!/^(true|false|null|\d+\.?\d*)$/.test(value.trim())) {
+        return `: "${value.trim()}"`;
+      }
+      return match;
+    });
     
     // Fix trailing commas
-    fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
     
     // Fix missing commas between properties
-    fixed = fixed.replace(/"\s*\n\s*"/g, '",\n"');
-    fixed = fixed.replace(/(\d+)\s*\n\s*"/g, '$1,\n"');
-    fixed = fixed.replace(/"\s*\n\s*(\d+)/g, '",\n$1');
+    cleaned = cleaned.replace(/"\s*\n\s*"/g, '",\n"');
+    cleaned = cleaned.replace(/(\d+)\s*\n\s*"/g, '$1,\n"');
+    cleaned = cleaned.replace(/"\s*\n\s*(\d+)/g, '",\n$1');
     
-    // Fix unescaped quotes in strings
-    fixed = fixed.replace(/"([^"]*)"([^"]*)"([^"]*)":/g, '"$1\\"$2\\"$3":');
-    
-    // Fix missing quotes around keys
-    fixed = fixed.replace(/(\w+):/g, '"$1":');
-    
-    // Fix boolean values
-    fixed = fixed.replace(/:\s*(true|false)\s*([,}])/g, ': $1$2');
-    
-    // Fix null values
-    fixed = fixed.replace(/:\s*null\s*([,}])/g, ': null$1');
-    
-    // Remove any extra text after the last }
-    const lastBrace = fixed.lastIndexOf('}');
-    if (lastBrace !== -1) {
-      fixed = fixed.substring(0, lastBrace + 1);
-    }
-    
-    return fixed;
+    return cleaned;
   }
 
   createFallbackResponse(dsrData) {
