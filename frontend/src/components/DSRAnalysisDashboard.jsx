@@ -272,6 +272,7 @@ const DSRAnalysisDashboard = ({ data }) => {
       </Card.Body>
     </Card>
   );
+  
 };
 
 export default DSRAnalysisDashboard;
