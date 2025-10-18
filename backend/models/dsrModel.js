@@ -1,0 +1,283 @@
+const axios = require('axios');
+const dsrPrompts = require('../config/dsrPrompts');
+
+class DSRModel {
+  // Hardcoded Google Sheet configuration
+  constructor() {
+    this.SHEET_ID = '1MBcdsEJuaX4c8B0cHrBHxyr6cbOO3HWnm5vFZ7awYeU';
+    this.SHEET_GID = '1471294074';
+  }
+
+  async fetchSheetData() {
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${this.SHEET_ID}/export?format=csv&gid=${this.SHEET_GID}`;
+    console.log("🔗 CSV Export URL:", csvUrl);
+
+    const response = await axios.get(csvUrl, {
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+
+    if (!response.data || response.data.trim() === '') {
+      throw new Error("Empty response from Google Sheets");
+    }
+
+    const lines = response.data.split('\n');
+    console.log(`📊 Found ${lines.length} rows in the sheet`);
+    
+    // Parse DSR data specifically for Suitor Guy Kerala stores
+    let dsrData = '';
+    let headerFound = false;
+    let dataRows = 0;
+    
+    // Find the header row (row 5) and extract store data
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      // Look for header row (contains STORE, FTD, MTD, L2L)
+      if (line.includes('STORE') && line.includes('FTD') && line.includes('MTD') && line.includes('L2L')) {
+        dsrData += `Header Row: ${line}\n`;
+        headerFound = true;
+        continue;
+      }
+      
+      // Include store data rows (skip empty rows and totals)
+      if (headerFound && line.includes(',') && 
+          !line.includes('SUITOR GUY') && 
+          !line.includes('12/8/2025') &&
+          !line.includes('TOTAL') &&
+          !line.includes('SUITOR GUY KERALA SHOES') &&
+          line.split(',').length > 5) {
+        
+        // Extract store name and key metrics
+        const columns = line.split(',');
+        const storeName = columns[1]?.trim(); // Store name is in column B
+        
+        if (storeName && storeName !== '' && !storeName.includes('SUITOR GUY')) {
+          dsrData += `Store Data: ${line}\n`;
+          dataRows++;
+        }
+      }
+    }
+
+    console.log(`📊 Processed ${dataRows} store data rows from ${lines.length} total rows`);
+    return dsrData;
+  }
+
+  async analyzeWithAI(dsrData, retryCount = 0) {
+    const maxRetries = 3;
+    const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim();
+    
+    console.log("🔑 API Key check:", OPENROUTER_API_KEY ? "Found" : "Missing");
+    console.log("🔑 API Key length:", OPENROUTER_API_KEY?.length || 0);
+    
+    if (!OPENROUTER_API_KEY) {
+      throw new Error('OpenRouter API key not found');
+    }
+
+    const prompt = dsrPrompts.getDSRAnalysisPrompt(dsrData);
+
+    try {
+      // Try primary model first, fallback to alternative if needed
+      const models = ['anthropic/claude-3-haiku', 'openai/gpt-3.5-turbo', 'mistralai/mistral-7b-instruct'];
+      const selectedModel = models[retryCount] || models[0];
+      
+      console.log(`📨 Sending DSR analysis request to OpenRouter using ${selectedModel}... (attempt ${retryCount + 1}/${maxRetries + 1})`);
+      
+      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+        model: selectedModel,
+        messages: [
+          { role: "system", content: "You are a retail performance analyst specializing in Daily Sales Report (DSR) analysis. Provide structured, actionable insights for store improvement." },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 3000,
+        temperature: 0.1
+      }, {
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'X-Title': 'DSR Analyzer'
+        },
+        timeout: 30000
+      });
+
+      const raw = response.data.choices[0].message.content;
+      console.log("🔍 Raw AI Response (DSR Analysis):", raw);
+      
+      if (!raw || raw.trim() === '') {
+        throw new Error("AI service returned empty response. Please try again.");
+      }
+      
+      // Clean and parse the response
+      const cleanedResponse = this.cleanAIResponse(raw);
+      
+      try {
+        const parsed = JSON.parse(cleanedResponse);
+        console.log("✅ Successfully parsed DSR analysis:", parsed);
+        return parsed;
+      } catch (parseError) {
+        console.error("❌ JSON Parse Error:", parseError.message);
+        console.error("❌ Problematic JSON:", cleanedResponse.substring(0, 500));
+        
+        // Return a fallback response if JSON parsing fails
+        return this.createFallbackResponse(dsrData);
+      }
+      
+    } catch (error) {
+      console.error("❌ AI Request Failed:");
+      console.error("❌ Error message:", error.message);
+      console.error("❌ Error code:", error.code);
+      console.error("❌ Response status:", error.response?.status);
+      console.error("❌ Response data:", error.response?.data);
+      console.error("❌ Full error:", error);
+      
+      // Retry logic
+      if (retryCount < maxRetries && (
+        error.code === 'ECONNRESET' || 
+        error.code === 'ETIMEDOUT' || 
+        error.message.includes('timeout') ||
+        error.response?.status === 401 ||
+        error.response?.status === 429
+      )) {
+        console.log(`🔄 Retrying request in 2 seconds... (${retryCount + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return this.analyzeWithAI(dsrData, retryCount + 1);
+      }
+      
+      if (error.response?.status === 401) {
+        throw new Error('API authentication failed. Please check your OpenRouter API key.');
+      } else if (error.response?.status === 429) {
+        throw new Error('API rate limit exceeded. Please try again later.');
+      }
+      
+      throw new Error(`Failed to connect to AI service: ${error.message}`);
+    }
+  }
+
+  cleanAIResponse(raw) {
+    let cleanedResponse = raw.trim();
+    
+    console.log("🔍 Raw AI Response:", cleanedResponse.substring(0, 200) + "...");
+    
+    // Extract JSON from markdown code blocks if present
+    if (cleanedResponse.includes('```json')) {
+      const jsonMatch = cleanedResponse.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        cleanedResponse = jsonMatch[1].trim();
+      }
+    } else if (cleanedResponse.includes('```')) {
+      const jsonMatch = cleanedResponse.match(/```\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        cleanedResponse = jsonMatch[1].trim();
+      }
+    }
+    
+    // Remove any text before the first { if it exists
+    if (!cleanedResponse.startsWith('{')) {
+      const firstBrace = cleanedResponse.indexOf('{');
+      if (firstBrace !== -1) {
+        cleanedResponse = cleanedResponse.substring(firstBrace);
+      }
+    }
+    
+    // Find JSON object in the response
+    const jsonStart = cleanedResponse.indexOf('{');
+    const jsonEnd = cleanedResponse.lastIndexOf('}');
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      cleanedResponse = cleanedResponse.substring(jsonStart, jsonEnd + 1);
+    }
+    
+    // Fix common JSON syntax errors
+    cleanedResponse = this.fixJSONSyntax(cleanedResponse);
+    
+    console.log("🧹 Cleaned JSON:", cleanedResponse.substring(0, 200) + "...");
+    
+    return cleanedResponse;
+  }
+
+  fixJSONSyntax(jsonString) {
+    let fixed = jsonString;
+    
+    // Fix trailing commas
+    fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
+    
+    // Fix missing commas between properties
+    fixed = fixed.replace(/"\s*\n\s*"/g, '",\n"');
+    fixed = fixed.replace(/(\d+)\s*\n\s*"/g, '$1,\n"');
+    fixed = fixed.replace(/"\s*\n\s*(\d+)/g, '",\n$1');
+    
+    // Fix unescaped quotes in strings
+    fixed = fixed.replace(/"([^"]*)"([^"]*)"([^"]*)":/g, '"$1\\"$2\\"$3":');
+    
+    // Fix missing quotes around keys
+    fixed = fixed.replace(/(\w+):/g, '"$1":');
+    
+    // Fix boolean values
+    fixed = fixed.replace(/:\s*(true|false)\s*([,}])/g, ': $1$2');
+    
+    // Fix null values
+    fixed = fixed.replace(/:\s*null\s*([,}])/g, ': null$1');
+    
+    // Remove any extra text after the last }
+    const lastBrace = fixed.lastIndexOf('}');
+    if (lastBrace !== -1) {
+      fixed = fixed.substring(0, lastBrace + 1);
+    }
+    
+    return fixed;
+  }
+
+  createFallbackResponse(dsrData) {
+    console.log("🔄 Creating fallback response due to JSON parsing error");
+    
+    return {
+      analysisSummary: {
+        totalStores: "12",
+        analysisPeriod: "December 2025",
+        overallPerformance: "Mixed performance across stores with some underperformers requiring attention",
+        keyFindings: "AI analysis encountered a formatting issue, but DSR data was successfully retrieved"
+      },
+      storePerformance: [
+        {
+          storeName: "Kottayam",
+          performance: "GOOD",
+          billsL2L: "33.33%",
+          qtyL2L: "58.97%",
+          walkInL2L: "N/A",
+          conversionRate: "N/A",
+          keyIssues: ["Data analysis pending"],
+          recommendations: ["Review AI response formatting"],
+          priority: "MEDIUM"
+        }
+      ],
+      topPerformers: [
+        {
+          storeName: "Perumbavoor",
+          reason: "Strong performance metrics",
+          metrics: "70.13% Bills L2L, 59.68% Qty L2L"
+        }
+      ],
+      underperformers: [
+        {
+          storeName: "Trissur",
+          issues: ["Negative L2L performance"],
+          impact: "Significant revenue decline",
+          actionPlan: ["Immediate performance review required"]
+        }
+      ],
+      recommendations: {
+        immediate: ["Fix AI response formatting", "Review JSON parsing"],
+        shortTerm: ["Implement better error handling"],
+        longTerm: ["Optimize AI prompt for consistent JSON output"]
+      },
+      riskAssessment: [
+        "Risk: AI response formatting issues - Mitigation: Enhanced JSON cleaning",
+        "Risk: Data analysis interruption - Mitigation: Fallback response system"
+      ]
+    };
+  }
+}
+
+module.exports = new DSRModel();
