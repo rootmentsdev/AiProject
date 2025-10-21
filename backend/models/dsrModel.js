@@ -6,6 +6,7 @@ class DSRModel {
   constructor() {
     this.SHEET_ID = '1MBcdsEJuaX4c8B0cHrBHxyr6cbOO3HWnm5vFZ7awYeU';
     this.SHEET_GID = '1471294074';
+    this.lastUsedModel = null;
   }
 
   async fetchSheetData() {
@@ -102,6 +103,9 @@ class DSRModel {
         },
         timeout: 30000
       });
+
+      // Track which model was used
+      this.lastUsedModel = selectedModel;
 
       const raw = response.data.choices[0].message.content;
       console.log("🔍 Raw AI Response (DSR Analysis):", raw);
