@@ -25,22 +25,32 @@ class DSRController {
       
       // Save the response to MongoDB
       try {
-        const date = new Date();
-        const dateString = date.toISOString().split('T')[0];
+        const mongoose = require('mongoose');
         
-        const dailyResponse = new DailyResponse({
-          date: date,
-          dateString: dateString,
-          analysisData: result,
-          analysisSummary: result.analysisSummary || {},
-          modelUsed: dsrModel.lastUsedModel || 'anthropic/claude-3-haiku',
-          responseTime: responseTime
-        });
-        
-        await dailyResponse.save();
-        console.log(`✅ Saved daily response to MongoDB (${dateString})`);
+        // Check if MongoDB is connected
+        if (mongoose.connection.readyState !== 1) {
+          console.log("⚠️ MongoDB not connected, skipping save. Connection state:", mongoose.connection.readyState);
+          console.log("⚠️ Analysis result will still be returned to frontend");
+        } else {
+          const date = new Date();
+          const dateString = date.toISOString().split('T')[0];
+          
+          const dailyResponse = new DailyResponse({
+            date: date,
+            dateString: dateString,
+            analysisData: result,
+            analysisSummary: result.analysisSummary || {},
+            modelUsed: dsrModel.lastUsedModel || 'anthropic/claude-3-haiku',
+            responseTime: responseTime
+          });
+          
+          await dailyResponse.save();
+          console.log(`✅ Saved daily response to MongoDB (${dateString})`);
+          console.log(`📊 Response ID: ${dailyResponse._id}`);
+        }
       } catch (saveError) {
         console.error("❌ Failed to save response to MongoDB:", saveError.message);
+        console.error("❌ Error details:", saveError);
         // Continue even if save fails - don't block the response
       }
       
