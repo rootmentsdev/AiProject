@@ -31,11 +31,18 @@ class DSRModel {
     let dsrData = '';
     let headerFound = false;
     let dataRows = 0;
+    let sheetDate = null;
     
     // Find the header row (row 5) and extract store data
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
+      
+      // Extract date from the sheet (look for date patterns like 12/8/2025)
+      if (!sheetDate && line.match(/\d{1,2}\/\d{1,2}\/\d{4}/)) {
+        sheetDate = line.match(/\d{1,2}\/\d{1,2}\/\d{4}/)[0];
+        console.log(`📅 Found DSR sheet date: ${sheetDate}`);
+      }
       
       // Look for header row (contains STORE, FTD, MTD, L2L)
       if (line.includes('STORE') && line.includes('FTD') && line.includes('MTD') && line.includes('L2L')) {
@@ -64,10 +71,19 @@ class DSRModel {
     }
 
     console.log(`📊 Processed ${dataRows} store data rows from ${lines.length} total rows`);
-    return dsrData;
+    
+    // Store the extracted date for use in cancellation analysis
+    this.sheetDate = sheetDate;
+    
+    return {
+      data: dsrData,
+      date: sheetDate
+    };
   }
 
   async analyzeWithAI(dsrData, retryCount = 0) {
+    // Handle both old string format and new object format
+    const dataToAnalyze = typeof dsrData === 'object' ? dsrData.data : dsrData;
     const maxRetries = 3;
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim();
     
@@ -78,7 +94,7 @@ class DSRModel {
       throw new Error('OpenRouter API key not found');
     }
 
-    const prompt = dsrPrompts.getDSRAnalysisPrompt(dsrData);
+    const prompt = dsrPrompts.getDSRAnalysisPrompt(dataToAnalyze);
 
     try {
       // Try primary model first, fallback to alternative if needed

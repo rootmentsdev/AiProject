@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 const app = express();
 
 // ✅ Set API key directly in server.js (no .env file needed)
-const OPENROUTER_API_KEY = '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';
+const OPENROUTER_API_KEY = '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';
 process.env.OPENROUTER_API_KEY = OPENROUTER_API_KEY;
 
 console.log("🔐 Loaded API Key:", OPENROUTER_API_KEY.slice(0, 10) + '...');
@@ -49,9 +49,11 @@ app.use(express.json());
 const dsrRoutes = require('./routes/dsrRoutes');
 const promptRoutes = require('./routes/promptRoutes');
 const dailyResponseRoutes = require('./routes/dailyResponseRoutes');
+const integratedAnalysisRoutes = require('./routes/integratedAnalysisRoutes');
 app.use('/api', dsrRoutes);
 app.use('/api', promptRoutes);
 app.use('/api', dailyResponseRoutes);
+app.use('/api', integratedAnalysisRoutes);
 
 // Start server
 const PORT = 5000;

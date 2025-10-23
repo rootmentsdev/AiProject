@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Row, Col, Card, Button, Spinner, Alert } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Spinner, Alert, Nav, Tab } from 'react-bootstrap';
 import DSRAnalysisDashboard from './components/DSRAnalysisDashboard';
 import AIInsights from './components/AIInsights';
+import IntegratedAnalysisDashboard from './components/IntegratedAnalysisDashboard';
 import './App.css';
 
 function App() {
@@ -10,6 +11,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [activeTab, setActiveTab] = useState('dsr');
 
   useEffect(() => {
     setIsLoaded(true);
@@ -91,119 +93,156 @@ function App() {
           </Row>
         )}
 
-        {/* Start Analysis Button */}
-        {!dsrData && !loading && (
-          <Row className="mb-4">
-            <Col>
-              <Card className="border-0 shadow-lg text-center" style={{ 
-                background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-                animation: 'fadeInUp 0.8s ease-out'
-              }}>
-                <Card.Header className="bg-white border-0 py-4">
-                  <h4 className="mb-0 text-dark">
-                    <i className="fas fa-play-circle me-2 text-primary"></i>
-                    Start DSR Analysis
-                  </h4>
-                </Card.Header>
-                <Card.Body className="py-5">
-                  <p className="mb-4 text-muted fs-5">
-                    Click the button below to analyze the Suitor Guy Kerala DSR sheet and identify store performance issues.
-                  </p>
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={analyzeDSRSheet}
-                    disabled={loading}
-                    className="px-5 py-3 rounded-pill shadow-sm"
-                    style={{ 
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                      border: 'none',
-                      fontSize: '1.1rem',
-                      fontWeight: '600',
-                      transition: 'all 0.3s ease'
-                    }}
-                  >
-                    {loading ? (
-                      <>
-                        <Spinner size="sm" className="me-2" />
-                        Analyzing DSR Data...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-rocket me-2"></i>
-                        Start Analysis
-                      </>
-                    )}
-                  </Button>
-                  <div className="mt-4">
-                    <small className="text-muted">
-                      <i className="fas fa-link me-1"></i>
-                      <strong>Connected to:</strong> Suitor Guy Kerala DSR Sheet |
-                      <i className="fas fa-calendar me-1 ms-2"></i>
-                      <strong> Period:</strong> December 2025
-                    </small>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-        )}
+        {/* Navigation Tabs */}
+        <Row className="mb-4">
+          <Col>
+            <Card className="border-0 shadow-sm">
+              <Card.Body className="py-2">
+                <Nav variant="tabs" className="border-0" activeKey={activeTab} onSelect={setActiveTab}>
+                  <Nav.Item>
+                    <Nav.Link eventKey="dsr" className="border-0">
+                      <i className="fas fa-chart-line me-2"></i>
+                      DSR Analysis
+                    </Nav.Link>
+                  </Nav.Item>
+                  <Nav.Item>
+                    <Nav.Link eventKey="integrated" className="border-0">
+                      <i className="fas fa-brain me-2"></i>
+                      AI Integrated Analysis
+                    </Nav.Link>
+                  </Nav.Item>
+                </Nav>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
 
-        {/* Analysis Results */}
-        {dsrData && (
-          <>
-            <Row className="mb-3">
-              <Col>
-                <div className="d-flex justify-content-between align-items-center">
-                  <h5 className="mb-0 text-dark">
-                    <i className="fas fa-chart-line me-2 text-primary"></i>
-                    Analysis Results
-                  </h5>
-                  <Button
-                    variant="outline-primary"
-                    onClick={analyzeDSRSheet}
-                    disabled={loading}
-                    size="sm"
-                    className="rounded-pill"
-                  >
-                    {loading ? <Spinner size="sm" className="me-1" /> : null}
-                    {loading ? 'Refreshing...' : (
-                      <>
-                        <i className="fas fa-sync-alt me-1"></i>
-                        Refresh Analysis
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </Col>
-            </Row>
-            <Row>
-              <Col lg={8}>
-                <DSRAnalysisDashboard data={dsrData} />
-              </Col>
-              <Col lg={4}>
-                <AIInsights analysis={aiAnalysis} />
-              </Col>
-            </Row>
-          </>
-        )}
+        {/* Tab Content */}
+        <Tab.Container activeKey={activeTab}>
+          <Tab.Content>
+            {/* DSR Analysis Tab */}
+            <Tab.Pane eventKey="dsr">
+              {/* Start Analysis Button */}
+              {!dsrData && !loading && (
+                <Row className="mb-4">
+                  <Col>
+                    <Card className="border-0 shadow-lg text-center" style={{ 
+                      background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+                      animation: 'fadeInUp 0.8s ease-out'
+                    }}>
+                      <Card.Header className="bg-white border-0 py-4">
+                        <h4 className="mb-0 text-dark">
+                          <i className="fas fa-play-circle me-2 text-primary"></i>
+                          Start DSR Analysis
+                        </h4>
+                      </Card.Header>
+                      <Card.Body className="py-5">
+                        <p className="mb-4 text-muted fs-5">
+                          Click the button below to analyze the Suitor Guy Kerala DSR sheet and identify store performance issues.
+                        </p>
+                        <Button
+                          variant="primary"
+                          size="lg"
+                          onClick={analyzeDSRSheet}
+                          disabled={loading}
+                          className="px-5 py-3 rounded-pill shadow-sm"
+                          style={{ 
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            fontSize: '1.1rem',
+                            fontWeight: '600',
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
+                          {loading ? (
+                            <>
+                              <Spinner size="sm" className="me-2" />
+                              Analyzing DSR Data...
+                            </>
+                          ) : (
+                            <>
+                              <i className="fas fa-rocket me-2"></i>
+                              Start Analysis
+                            </>
+                          )}
+                        </Button>
+                        <div className="mt-4">
+                          <small className="text-muted">
+                            <i className="fas fa-link me-1"></i>
+                            <strong>Connected to:</strong> Suitor Guy Kerala DSR Sheet |
+                            <i className="fas fa-calendar me-1 ms-2"></i>
+                            <strong> Period:</strong> December 2025
+                          </small>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                </Row>
+              )}
 
-        {/* Loading Spinner */}
-        {loading && !dsrData && (
-          <Row>
-            <Col className="text-center">
-              <div className="loading-container">
-                <Spinner animation="border" role="status" className="text-primary" style={{ width: '3rem', height: '3rem' }}>
-                  <span className="visually-hidden">Loading...</span>
-                </Spinner>
-                <p className="mt-3 text-muted fs-5">
-                  <i className="fas fa-cog fa-spin me-2"></i>
-                  Analyzing Suitor Guy Kerala DSR data...
-                </p>
-              </div>
-            </Col>
-          </Row>
-        )}
+              {/* Analysis Results */}
+              {dsrData && (
+                <>
+                  <Row className="mb-3">
+                    <Col>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <h5 className="mb-0 text-dark">
+                          <i className="fas fa-chart-line me-2 text-primary"></i>
+                          Analysis Results
+                        </h5>
+                        <Button
+                          variant="outline-primary"
+                          onClick={analyzeDSRSheet}
+                          disabled={loading}
+                          size="sm"
+                          className="rounded-pill"
+                        >
+                          {loading ? <Spinner size="sm" className="me-1" /> : null}
+                          {loading ? 'Refreshing...' : (
+                            <>
+                              <i className="fas fa-sync-alt me-1"></i>
+                              Refresh Analysis
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </Col>
+                  </Row>
+                  <Row>
+                    <Col lg={8}>
+                      <DSRAnalysisDashboard data={dsrData} />
+                    </Col>
+                    <Col lg={4}>
+                      <AIInsights analysis={aiAnalysis} />
+                    </Col>
+                  </Row>
+                </>
+              )}
+
+              {/* Loading Spinner */}
+              {loading && !dsrData && (
+                <Row>
+                  <Col className="text-center">
+                    <div className="loading-container">
+                      <Spinner animation="border" role="status" className="text-primary" style={{ width: '3rem', height: '3rem' }}>
+                        <span className="visually-hidden">Loading...</span>
+                      </Spinner>
+                      <p className="mt-3 text-muted fs-5">
+                        <i className="fas fa-cog fa-spin me-2"></i>
+                        Analyzing Suitor Guy Kerala DSR data...
+                      </p>
+                    </div>
+                  </Col>
+                </Row>
+              )}
+            </Tab.Pane>
+
+            {/* Integrated Analysis Tab */}
+            <Tab.Pane eventKey="integrated">
+              <IntegratedAnalysisDashboard />
+            </Tab.Pane>
+          </Tab.Content>
+        </Tab.Container>
       </Container>
     </div>
   );

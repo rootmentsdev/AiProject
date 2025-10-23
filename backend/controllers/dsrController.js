@@ -9,17 +9,21 @@ class DSRController {
       const startTime = Date.now();
       
       // Fetch data from hardcoded Google Sheet
-      const dsrData = await dsrModel.fetchSheetData();
+      const dsrDataResult = await dsrModel.fetchSheetData();
       
-      if (!dsrData || dsrData.trim() === '') {
+      if (!dsrDataResult || !dsrDataResult.data || dsrDataResult.data.trim() === '') {
         console.error("❌ No valid data found in sheet");
         return res.status(400).json({ error: "No valid data found in the Google Sheet. Please check the sheet content." });
       }
 
-      console.log("📊 DSR Data Preview:", dsrData.substring(0, 500) + "...");
+      console.log("📊 DSR Data Preview:", dsrDataResult.data.substring(0, 500) + "...");
+      console.log("📅 DSR Sheet Date:", dsrDataResult.date);
       
       // Analyze DSR data with AI
-      const result = await dsrModel.analyzeWithAI(dsrData);
+      const result = await dsrModel.analyzeWithAI(dsrDataResult);
+      
+      // Add the sheet date to the result
+      result.sheetDate = dsrDataResult.date;
       
       const responseTime = Date.now() - startTime;
       
