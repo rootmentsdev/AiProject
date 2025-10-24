@@ -1,15 +1,20 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+require('dotenv').config(); // Load environment variables
 
 const app = express();
 
-// ✅ Set API key directly in server.js (no .env file needed)
-const OPENROUTER_API_KEY = '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';
-process.env.OPENROUTER_API_KEY = OPENROUTER_API_KEY;
+// ✅ Load Groq API key from environment variable
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+if (!GROQ_API_KEY) {
+  console.error("❌ GROQ_API_KEY not found in environment variables!");
+  console.log("💡 Please set GROQ_API_KEY in your .env file");
+  process.exit(1);
+}
 
-console.log("🔐 Loaded API Key:", OPENROUTER_API_KEY.slice(0, 10) + '...');
-console.log("✅ API Key length:", OPENROUTER_API_KEY.length, "characters");
+console.log("🔐 Loaded Groq API Key:", GROQ_API_KEY.slice(0, 10) + '...');
+console.log("✅ API Key length:", GROQ_API_KEY.length, "characters");
 
 // ✅ MongoDB connection string with database name
 const MONGODB_URI = 'mongodb+srv://abhiramskumar75_db_user:root@cluster0.bg40zfa.mongodb.net/test?retryWrites=true&w=majority&appName=Cluster0';

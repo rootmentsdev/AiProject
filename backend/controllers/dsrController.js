@@ -278,12 +278,12 @@ class DSRController {
   }
 
   // Generate AI-powered action plans for each store
-  async generateAIActionPlan(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType) {
+  async generateAIActionPlan(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData = null) {
     try {
-      const prompt = this.buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType);
+      const prompt = this.buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData);
       
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'google/gemini-2.0-flash-exp:free',
+      const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+        model: 'llama-3.3-70b-versatile',
         messages: [
           {
             role: 'system',
@@ -296,7 +296,7 @@ class DSRController {
         ]
       }, {
         headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY || global.OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -336,53 +336,121 @@ class DSRController {
     }
   }
 
-  // Build AI prompt for action plan
-  buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType) {
+  // Build AI prompt for action plan with detailed DSR and cancellation data
+  buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData) {
     console.log(`\n${'─'.repeat(80)}`);
-    console.log(`📝 BUILDING AI PROMPT FOR: ${storeName}`);
+    console.log(`📝 BUILDING DETAILED AI PROMPT FOR: ${storeName}`);
     console.log(`${'─'.repeat(80)}`);
     
-    let prompt = `You are analyzing ${storeName}, a costume rental store in Kerala, India.\n\n`;
+    let prompt = `You are a CEO analyzing ${storeName}, a costume rental store in Kerala, India.\n\n`;
     
     if (problemType === 'BOTH') {
       prompt += `⚠️ CRITICAL SITUATION: This store has BOTH poor sales performance AND high cancellations.\n\n`;
-      prompt += `📊 DSR Performance Issues:\n`;
+      
+      prompt += `📊 DETAILED DSR PERFORMANCE ANALYSIS:\n`;
+      prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      if (dsrData) {
+        prompt += `• Conversion Rate: ${dsrData.conversionRate || 'N/A'}\n`;
+        prompt += `• Bills Performance: ${dsrData.billsPerformance || 'N/A'}\n`;
+        prompt += `• Quantity Performance: ${dsrData.quantityPerformance || 'N/A'}\n`;
+        prompt += `• Walk-ins: ${dsrData.walkIns || 'N/A'}\n`;
+        prompt += `• Loss of Sale: ${dsrData.lossOfSale || 'N/A'}\n`;
+        prompt += `• ABS Value: ₹${dsrData.absValue || 'N/A'}\n`;
+      }
+      prompt += `💰 Estimated Revenue Loss: ₹${dsrLoss.toLocaleString()}\n`;
+      prompt += `\n🔍 Root Causes:\n`;
       dsrIssues.forEach((issue, i) => {
-        prompt += `${i + 1}. ${issue}\n`;
+        prompt += `   ${i + 1}. ${issue}\n`;
       });
-      prompt += `💰 Estimated Revenue Loss: ₹${dsrLoss.toLocaleString()}\n\n`;
-      prompt += `❌ Cancellation Problems:\n`;
-      prompt += `Total Cancellations: ${cancellationCount}\n`;
+      
+      prompt += `\n❌ CANCELLATION ANALYSIS:\n`;
+      prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      prompt += `• Total Cancellations: ${cancellationCount}\n`;
+      prompt += `• Cancellation Rate: ${((cancellationCount / (dsrData?.walkIns || 1)) * 100).toFixed(2)}% of walk-ins\n`;
+      prompt += `\n📋 Top Cancellation Reasons:\n`;
       cancellationReasons.forEach((reason, i) => {
-        prompt += `${i + 1}. ${reason.reason} (${reason.count} times - ${reason.percentage}%)\n`;
+        prompt += `   ${i + 1}. ${reason.reason}\n`;
+        prompt += `      • Frequency: ${reason.count} times (${reason.percentage}%)\n`;
+        prompt += `      • Impact: ${reason.count > 2 ? 'HIGH' : reason.count > 1 ? 'MEDIUM' : 'LOW'}\n`;
       });
+      
     } else if (problemType === 'CANCELLATION_ONLY') {
       prompt += `✅ DSR Performance: GOOD (Sales targets being met)\n`;
-      prompt += `⚠️ Issue: High Cancellations Despite Good Sales\n\n`;
-      prompt += `❌ Cancellation Problems:\n`;
-      prompt += `Total Cancellations: ${cancellationCount}\n`;
+      prompt += `⚠️ Issue: High Cancellations Despite Good Sales Performance\n\n`;
+      
+      prompt += `❌ DETAILED CANCELLATION ANALYSIS:\n`;
+      prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      prompt += `• Total Cancellations: ${cancellationCount}\n`;
+      prompt += `• Store Status: Meeting DSR targets but losing customers\n`;
+      prompt += `\n📋 Cancellation Breakdown:\n`;
       cancellationReasons.forEach((reason, i) => {
-        prompt += `${i + 1}. ${reason.reason} (${reason.count} times - ${reason.percentage}%)\n`;
+        prompt += `   ${i + 1}. ${reason.reason}\n`;
+        prompt += `      • Frequency: ${reason.count} times (${reason.percentage}%)\n`;
+        prompt += `      • Impact: ${reason.count > 2 ? 'HIGH' : reason.count > 1 ? 'MEDIUM' : 'LOW'}\n`;
       });
     }
     
-    prompt += `\n🎯 YOUR TASK:\n`;
-    prompt += `As a CEO, provide a COMPREHENSIVE action plan in JSON format with:\n`;
-    prompt += `1. "suggestions": Array of 3-4 key insights/analysis points (like "Root cause is X", "Pattern shows Y")\n`;
-    prompt += `2. "immediate": Array of 3 actions to take in 24-48 hours (urgent, specific, actionable)\n`;
-    prompt += `3. "shortTerm": Array of 3 actions for 1-2 weeks (tactical improvements)\n`;
-    prompt += `4. "longTerm": Array of 3 actions for 1-3 months (strategic changes)\n`;
-    prompt += `5. "expectedImpact": One sentence describing measurable outcomes\n\n`;
-    prompt += `Focus on:\n`;
-    prompt += `- Reducing cancellations through better customer service and communication\n`;
-    prompt += `- Improving inventory and costume availability\n`;
-    prompt += `- Training staff for better customer experience\n`;
-    prompt += `- Building customer loyalty and retention\n`;
+    prompt += `\n🎯 YOUR DETAILED CEO-LEVEL TASK:\n`;
+    prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    prompt += `Analyze the SPECIFIC data points above and provide a COMPREHENSIVE, DATA-DRIVEN action plan in JSON format:\n\n`;
+    
+    prompt += `1. "suggestions": Array of 4-5 SPECIFIC insights based on the actual data:\n`;
+    prompt += `   - Identify the ROOT CAUSE of each cancellation reason\n`;
+    prompt += `   - Explain WHY the DSR metrics are poor (if applicable)\n`;
+    prompt += `   - Find PATTERNS in the cancellation data\n`;
+    prompt += `   - Calculate potential revenue recovery\n`;
+    prompt += `   Example: "Root cause: 66% of cancellations are due to X, indicating Y problem"\n\n`;
+    
+    prompt += `2. "immediate": Array of 4-5 URGENT actions for 24-48 hours:\n`;
+    prompt += `   - Must be SPECIFIC to the cancellation reasons listed above\n`;
+    prompt += `   - Must address the HIGHEST frequency cancellation reason first\n`;
+    prompt += `   - Include WHO should do it and HOW\n`;
+    prompt += `   Example: "Store manager to call all ${cancellationCount} cancelled customers personally within 24 hours"\n\n`;
+    
+    prompt += `3. "shortTerm": Array of 4-5 tactical actions for 1-2 weeks:\n`;
+    prompt += `   - Address each major cancellation reason with specific solutions\n`;
+    prompt += `   - Include process improvements\n`;
+    prompt += `   - Add staff training for identified gaps\n`;
     if (problemType === 'BOTH') {
-      prompt += `- Fixing sales conversion issues\n`;
-      prompt += `- Addressing walk-in to bill conversion problems\n`;
+      prompt += `   - Fix conversion rate issues with specific tactics\n`;
     }
-    prompt += `\nReturn ONLY valid JSON. No markdown, no explanations.`;
+    prompt += `\n`;
+    
+    prompt += `4. "longTerm": Array of 4-5 strategic changes for 1-3 months:\n`;
+    prompt += `   - System-level improvements\n`;
+    prompt += `   - Technology/infrastructure investments\n`;
+    prompt += `   - Cultural/process changes\n`;
+    prompt += `   - Build competitive advantages\n\n`;
+    
+    prompt += `5. "expectedImpact": One detailed sentence with:\n`;
+    prompt += `   - Specific % reduction in cancellations expected\n`;
+    prompt += `   - Estimated revenue recovery in ₹\n`;
+    if (problemType === 'BOTH') {
+      prompt += `   - Expected improvement in conversion rate\n`;
+    }
+    prompt += `   Example: "Expected to reduce cancellations by 40% (${Math.round(cancellationCount * 0.4)} fewer), recover ₹${Math.round(dsrLoss * 0.6).toLocaleString()}, and improve conversion to 75% within 2 months"\n\n`;
+    
+    prompt += `🔍 FOCUS AREAS (prioritize based on data above):\n`;
+    prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    if (problemType === 'BOTH') {
+      prompt += `• CRITICAL: Fix walk-in to bill conversion (only ${dsrData?.conversionRate || 'low'} converting)\n`;
+      prompt += `• HIGH: Address each cancellation reason with specific solutions\n`;
+      prompt += `• HIGH: Improve bills and quantity performance\n`;
+    }
+    prompt += `• Reduce EACH specific cancellation reason (focus on highest % first)\n`;
+    prompt += `• Improve customer communication and expectations management\n`;
+    prompt += `• Enhance inventory management and costume availability\n`;
+    prompt += `• Train staff on customer experience and sales techniques\n`;
+    prompt += `• Build customer loyalty and retention programs\n`;
+    prompt += `• Implement feedback loops and continuous improvement\n\n`;
+    
+    prompt += `⚠️ IMPORTANT: Your recommendations must be:\n`;
+    prompt += `• SPECIFIC to the cancellation reasons in the data above\n`;
+    prompt += `• ACTIONABLE with clear steps\n`;
+    prompt += `• MEASURABLE with clear KPIs\n`;
+    prompt += `• REALISTIC for a costume rental business in Kerala\n\n`;
+    
+    prompt += `Return ONLY valid JSON. No markdown, no explanations, no code blocks.`;
     
     console.log('📤 PROMPT SENT TO AI:');
     console.log(prompt);
@@ -434,10 +502,11 @@ class DSRController {
     const allStoresWithPlans = [];
     
     console.log(`\n${'🤖'.repeat(40)}`);
-    console.log(`🤖 STARTING AI-POWERED ACTION PLAN GENERATION`);
+    console.log(`🤖 STARTING AI-POWERED ACTION PLAN GENERATION FOR ALL STORES`);
     console.log(`🤖 Total Stores to Analyze: ${criticalStores.length + cancellationOnlyStores.length}`);
     console.log(`🤖 Critical Stores (Poor DSR + Cancellations): ${criticalStores.length}`);
     console.log(`🤖 Cancellation-Only Stores (Good DSR): ${cancellationOnlyStores.length}`);
+    console.log(`🤖 ALL STORES WILL GET AI-POWERED ACTION PLANS!`);
     console.log(`${'🤖'.repeat(40)}\n`);
     
     // 1. Process critical stores (both DSR problems + cancellations) - WITH AI
@@ -464,10 +533,17 @@ class DSRController {
         topCancellationReasons,
         dsrLoss,
         cancelData.totalCancellations,
-        'BOTH' // Has both problems
+        'BOTH', // Has both problems
+        dsrData // Pass full DSR data for detailed analysis
       );
       
       console.log(`✅ Action plan generated for ${store.storeName}\n`);
+      
+      // Add 2-second delay between AI calls to avoid rate limiting
+      if (criticalStores.indexOf(store) < criticalStores.length - 1) {
+        console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       allStoresWithPlans.push({
         storeName: store.storeName,
@@ -476,6 +552,15 @@ class DSRController {
         dsrStatus: 'POOR',
         dsrIssues,
         dsrLoss,
+        // Detailed DSR metrics
+        dsrMetrics: {
+          conversionRate: dsrData.conversionRate || 'N/A',
+          billsPerformance: dsrData.billsPerformance || 'N/A',
+          quantityPerformance: dsrData.quantityPerformance || 'N/A',
+          walkIns: dsrData.walkIns || 'N/A',
+          lossOfSale: dsrData.lossOfSale || 'N/A',
+          absValue: dsrData.absValue || 'N/A'
+        },
         totalCancellations: cancelData.totalCancellations,
         cancellationReasons: topCancellationReasons.slice(0, 3),
         actionPlan,
@@ -496,16 +581,24 @@ class DSRController {
       console.log(`   Cancellations: ${cancelData.totalCancellations}`);
       console.log(`   Top Cancel Reasons: ${topCancellationReasons.map(r => r.reason).join(', ')}`);
       
+      // Generate AI action plan for cancellation-only stores too!
       const actionPlan = await this.generateAIActionPlan(
         store.storeName,
-        [],
+        [], // No DSR issues
         topCancellationReasons,
-        0,
+        0, // No DSR loss
         cancelData.totalCancellations,
-        'CANCELLATION_ONLY' // Only cancellation problems
+        'CANCELLATION_ONLY', // Only cancellation problems
+        null // No DSR data
       );
       
-      console.log(`✅ Action plan generated for ${store.storeName}\n`);
+      console.log(`✅ AI action plan generated for ${store.storeName} (Good DSR)\n`);
+      
+      // Add delay between AI calls
+      if (cancellationOnlyStores.indexOf(store) < cancellationOnlyStores.length - 1) {
+        console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       allStoresWithPlans.push({
         storeName: store.storeName,
@@ -514,6 +607,14 @@ class DSRController {
         dsrStatus: 'GOOD',
         dsrIssues: ['DSR performance is good - needs slight improvements'],
         dsrLoss: 0,
+        dsrMetrics: {
+          conversionRate: 'Meeting targets',
+          billsPerformance: 'Good',
+          quantityPerformance: 'Good',
+          walkIns: 'N/A',
+          lossOfSale: 'Minimal',
+          absValue: 'N/A'
+        },
         totalCancellations: cancelData.totalCancellations,
         cancellationReasons: topCancellationReasons.slice(0, 3),
         actionPlan,

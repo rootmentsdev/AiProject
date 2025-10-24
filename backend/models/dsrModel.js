@@ -85,25 +85,25 @@ class DSRModel {
     // Handle both old string format and new object format
     const dataToAnalyze = typeof dsrData === 'object' ? dsrData.data : dsrData;
     const maxRetries = 3;
-    const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim();
+    const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
     
-    console.log("🔑 API Key check:", OPENROUTER_API_KEY ? "Found" : "Missing");
-    console.log("🔑 API Key length:", OPENROUTER_API_KEY?.length || 0);
+    console.log("🔑 Groq API Key check:", GROQ_API_KEY ? "Found" : "Missing");
+    console.log("🔑 API Key length:", GROQ_API_KEY?.length || 0);
     
-    if (!OPENROUTER_API_KEY) {
-      throw new Error('OpenRouter API key not found');
+    if (!GROQ_API_KEY) {
+      throw new Error('Groq API key not found');
     }
 
     const prompt = dsrPrompts.getDSRAnalysisPrompt(dataToAnalyze);
 
     try {
-      // Try primary model first, fallback to alternative if needed
-      const models = ['anthropic/claude-3-haiku', 'openai/gpt-3.5-turbo', 'mistralai/mistral-7b-instruct'];
+      // Groq models - super fast and free! (Updated to current models)
+      const models = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'];
       const selectedModel = models[retryCount] || models[0];
       
-      console.log(`📨 Sending DSR analysis request to OpenRouter using ${selectedModel}... (attempt ${retryCount + 1}/${maxRetries + 1})`);
+      console.log(`📨 Sending DSR analysis request to Groq using ${selectedModel}... (attempt ${retryCount + 1}/${maxRetries + 1})`);
       
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+      const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
         model: selectedModel,
         messages: [
           { role: "system", content: "You are a retail performance analyst specializing in Daily Sales Report (DSR) analysis. Provide structured, actionable insights for store improvement." },
@@ -113,9 +113,8 @@ class DSRModel {
         temperature: 0.1
       }, {
         headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'X-Title': 'DSR Analyzer'
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
         },
         timeout: 30000
       });
@@ -165,12 +164,12 @@ class DSRModel {
       }
       
       if (error.response?.status === 401) {
-        throw new Error('API authentication failed. Please check your OpenRouter API key.');
+        throw new Error('API authentication failed. Please check your Groq API key.');
       } else if (error.response?.status === 429) {
         throw new Error('API rate limit exceeded. Please try again later.');
       }
       
-      throw new Error(`Failed to connect to AI service: ${error.message}`);
+      throw new Error(`Failed to connect to Groq AI service: ${error.message}`);
     }
   }
 
