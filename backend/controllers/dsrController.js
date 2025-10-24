@@ -1,5 +1,6 @@
 const dsrModel = require('../models/dsrModel');
 const DailyResponse = require('../models/dailyResponseModel');
+const axios = require('axios');
 
 class DSRController {
   async analyzeSheet(req, res) {
@@ -122,7 +123,12 @@ class DSRController {
 
   performIntegratedAnalysis = async (req, res) => {
     try {
-      console.log("🚀 Starting Integrated Analysis...");
+      console.log("\n" + "=".repeat(100));
+      console.log("🚀 INTEGRATED ANALYSIS REQUEST RECEIVED FROM FRONTEND");
+      console.log("=".repeat(100));
+      console.log("⏰ Time:", new Date().toLocaleString());
+      console.log("📍 Endpoint: POST /api/integrated-analysis");
+      console.log("=".repeat(100) + "\n");
       
       // Step 1: Get DSR Analysis
       console.log("📊 Step 1: Fetching DSR data...");
@@ -147,9 +153,12 @@ class DSRController {
       console.log("📊 Step 3: Matching and comparing stores...");
       const comparisonResult = this.compareStores(dsrAnalysis, cancellationResult);
       
-      // Step 4: Generate CEO Action Plans
-      console.log("📊 Step 4: Generating action plans...");
-      const actionPlans = this.generateCEOActionPlans(comparisonResult, cancellationResult);
+      // Step 4: Generate AI-Powered CEO Action Plans
+      console.log("\n🤖 Step 4: Generating AI-powered action plans...");
+      const actionPlans = await this.generateCEOActionPlans(comparisonResult, cancellationResult);
+      
+      console.log('\n✅ INTEGRATED ANALYSIS COMPLETED SUCCESSFULLY!');
+      console.log('📊 Sending response to frontend...\n');
       
       res.json(actionPlans);
       
@@ -268,15 +277,171 @@ class DSRController {
     };
   }
 
+  // Generate AI-powered action plans for each store
+  async generateAIActionPlan(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType) {
+    try {
+      const prompt = this.buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType);
+      
+      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+        model: 'google/gemini-2.0-flash-exp:free',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a retail business consultant specializing in costume rental business. Provide actionable, CEO-level strategic advice.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ]
+      }, {
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY || global.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      const aiResponse = response.data.choices[0].message.content;
+      
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`🤖 AI ACTION PLAN GENERATED FOR: ${storeName}`);
+      console.log(`${'='.repeat(80)}`);
+      console.log('📥 FULL AI RESPONSE:');
+      console.log(aiResponse);
+      console.log(`${'='.repeat(80)}\n`);
+      
+      // Parse AI response
+      const parsed = this.parseAIActionPlan(aiResponse);
+      
+      console.log('✅ PARSED ACTION PLAN:');
+      console.log(JSON.stringify(parsed, null, 2));
+      console.log(`${'='.repeat(80)}\n`);
+      
+      return parsed;
+      
+    } catch (error) {
+      console.error(`\n❌ AI Action Plan generation FAILED for ${storeName}`);
+      console.error(`❌ Error: ${error.message}`);
+      console.error(`❌ Falling back to rule-based plan...\n`);
+      
+      // Fallback to rule-based plan
+      const fallbackPlan = this.generateActionPlanForStore(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType);
+      
+      console.log('📋 FALLBACK PLAN GENERATED:');
+      console.log(JSON.stringify(fallbackPlan, null, 2));
+      console.log(`${'─'.repeat(80)}\n`);
+      
+      return fallbackPlan;
+    }
+  }
+
+  // Build AI prompt for action plan
+  buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType) {
+    console.log(`\n${'─'.repeat(80)}`);
+    console.log(`📝 BUILDING AI PROMPT FOR: ${storeName}`);
+    console.log(`${'─'.repeat(80)}`);
+    
+    let prompt = `You are analyzing ${storeName}, a costume rental store in Kerala, India.\n\n`;
+    
+    if (problemType === 'BOTH') {
+      prompt += `⚠️ CRITICAL SITUATION: This store has BOTH poor sales performance AND high cancellations.\n\n`;
+      prompt += `📊 DSR Performance Issues:\n`;
+      dsrIssues.forEach((issue, i) => {
+        prompt += `${i + 1}. ${issue}\n`;
+      });
+      prompt += `💰 Estimated Revenue Loss: ₹${dsrLoss.toLocaleString()}\n\n`;
+      prompt += `❌ Cancellation Problems:\n`;
+      prompt += `Total Cancellations: ${cancellationCount}\n`;
+      cancellationReasons.forEach((reason, i) => {
+        prompt += `${i + 1}. ${reason.reason} (${reason.count} times - ${reason.percentage}%)\n`;
+      });
+    } else if (problemType === 'CANCELLATION_ONLY') {
+      prompt += `✅ DSR Performance: GOOD (Sales targets being met)\n`;
+      prompt += `⚠️ Issue: High Cancellations Despite Good Sales\n\n`;
+      prompt += `❌ Cancellation Problems:\n`;
+      prompt += `Total Cancellations: ${cancellationCount}\n`;
+      cancellationReasons.forEach((reason, i) => {
+        prompt += `${i + 1}. ${reason.reason} (${reason.count} times - ${reason.percentage}%)\n`;
+      });
+    }
+    
+    prompt += `\n🎯 YOUR TASK:\n`;
+    prompt += `As a CEO, provide a COMPREHENSIVE action plan in JSON format with:\n`;
+    prompt += `1. "suggestions": Array of 3-4 key insights/analysis points (like "Root cause is X", "Pattern shows Y")\n`;
+    prompt += `2. "immediate": Array of 3 actions to take in 24-48 hours (urgent, specific, actionable)\n`;
+    prompt += `3. "shortTerm": Array of 3 actions for 1-2 weeks (tactical improvements)\n`;
+    prompt += `4. "longTerm": Array of 3 actions for 1-3 months (strategic changes)\n`;
+    prompt += `5. "expectedImpact": One sentence describing measurable outcomes\n\n`;
+    prompt += `Focus on:\n`;
+    prompt += `- Reducing cancellations through better customer service and communication\n`;
+    prompt += `- Improving inventory and costume availability\n`;
+    prompt += `- Training staff for better customer experience\n`;
+    prompt += `- Building customer loyalty and retention\n`;
+    if (problemType === 'BOTH') {
+      prompt += `- Fixing sales conversion issues\n`;
+      prompt += `- Addressing walk-in to bill conversion problems\n`;
+    }
+    prompt += `\nReturn ONLY valid JSON. No markdown, no explanations.`;
+    
+    console.log('📤 PROMPT SENT TO AI:');
+    console.log(prompt);
+    console.log(`${'─'.repeat(80)}\n`);
+    
+    return prompt;
+  }
+
+  // Parse AI response into structured format
+  parseAIActionPlan(aiResponse) {
+    try {
+      // Clean the response
+      let cleaned = aiResponse.trim();
+      
+      // Remove markdown code blocks if present
+      if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      }
+      
+      // Find JSON object
+      const jsonStart = cleaned.indexOf('{');
+      const jsonEnd = cleaned.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+      }
+      
+      const parsed = JSON.parse(cleaned);
+      
+      // Validate structure
+      return {
+        suggestions: parsed.suggestions || [],
+        immediate: parsed.immediate || [],
+        shortTerm: parsed.shortTerm || [],
+        longTerm: parsed.longTerm || [],
+        expectedImpact: parsed.expectedImpact || 'Significant improvement expected'
+      };
+      
+    } catch (error) {
+      console.error('❌ Failed to parse AI response:', error.message);
+      throw error;
+    }
+  }
+
   // Generate CEO-level action plans
-  generateCEOActionPlans(comparisonResult, cancellationResult) {
+  async generateCEOActionPlans(comparisonResult, cancellationResult) {
     const { criticalStores, dsrOnlyStores, cancellationOnlyStores } = comparisonResult;
     
     // Process ALL stores with cancellations (critical + cancellation-only)
     const allStoresWithPlans = [];
     
-    // 1. Process critical stores (both DSR problems + cancellations)
-    criticalStores.forEach(store => {
+    console.log(`\n${'🤖'.repeat(40)}`);
+    console.log(`🤖 STARTING AI-POWERED ACTION PLAN GENERATION`);
+    console.log(`🤖 Total Stores to Analyze: ${criticalStores.length + cancellationOnlyStores.length}`);
+    console.log(`🤖 Critical Stores (Poor DSR + Cancellations): ${criticalStores.length}`);
+    console.log(`🤖 Cancellation-Only Stores (Good DSR): ${cancellationOnlyStores.length}`);
+    console.log(`${'🤖'.repeat(40)}\n`);
+    
+    // 1. Process critical stores (both DSR problems + cancellations) - WITH AI
+    for (const store of criticalStores) {
       const dsrData = store.dsrData;
       const cancelData = store.cancellationData;
       
@@ -287,7 +452,13 @@ class DSRController {
       const severity = dsrLoss > 250 && cancelData.totalCancellations > 5 ? 'CRITICAL' :
                       dsrLoss > 150 || cancelData.totalCancellations > 3 ? 'HIGH' : 'MEDIUM';
       
-      const actionPlan = this.generateActionPlanForStore(
+      console.log(`\n🚨 CRITICAL STORE ANALYSIS: ${store.storeName}`);
+      console.log(`   DSR Loss: ₹${dsrLoss.toLocaleString()}`);
+      console.log(`   Cancellations: ${cancelData.totalCancellations}`);
+      console.log(`   DSR Issues: ${dsrIssues.join(', ')}`);
+      console.log(`   Top Cancel Reasons: ${topCancellationReasons.map(r => r.reason).join(', ')}`);
+      
+      const actionPlan = await this.generateAIActionPlan(
         store.storeName,
         dsrIssues,
         topCancellationReasons,
@@ -295,6 +466,8 @@ class DSRController {
         cancelData.totalCancellations,
         'BOTH' // Has both problems
       );
+      
+      console.log(`✅ Action plan generated for ${store.storeName}\n`);
       
       allStoresWithPlans.push({
         storeName: store.storeName,
@@ -308,17 +481,22 @@ class DSRController {
         actionPlan,
         problemType: 'BOTH'
       });
-    });
+    }
     
-    // 2. Process cancellation-only stores (good DSR, but has cancellations)
-    cancellationOnlyStores.forEach(store => {
+    // 2. Process cancellation-only stores (good DSR, but has cancellations) - WITH AI
+    for (const store of cancellationOnlyStores) {
       const cancelData = store.cancellationData;
       const topCancellationReasons = cancelData.topReasons || [];
       
       const severity = cancelData.totalCancellations > 5 ? 'HIGH' : 
                       cancelData.totalCancellations > 3 ? 'MEDIUM' : 'LOW';
       
-      const actionPlan = this.generateActionPlanForStore(
+      console.log(`\n✅ GOOD DSR STORE ANALYSIS: ${store.storeName}`);
+      console.log(`   DSR Status: GOOD (Meeting targets)`);
+      console.log(`   Cancellations: ${cancelData.totalCancellations}`);
+      console.log(`   Top Cancel Reasons: ${topCancellationReasons.map(r => r.reason).join(', ')}`);
+      
+      const actionPlan = await this.generateAIActionPlan(
         store.storeName,
         [],
         topCancellationReasons,
@@ -326,6 +504,8 @@ class DSRController {
         cancelData.totalCancellations,
         'CANCELLATION_ONLY' // Only cancellation problems
       );
+      
+      console.log(`✅ Action plan generated for ${store.storeName}\n`);
       
       allStoresWithPlans.push({
         storeName: store.storeName,
@@ -339,7 +519,7 @@ class DSRController {
         actionPlan,
         problemType: 'CANCELLATION_ONLY'
       });
-    });
+    }
     
     // Sort by severity
     const severityOrder = { 'CRITICAL': 1, 'HIGH': 2, 'MEDIUM': 3, 'LOW': 4 };
@@ -356,6 +536,15 @@ class DSRController {
     const estimatedRecovery = Math.round(totalLoss * 0.7);
     
     const criticalCount = allStoresWithPlans.filter(s => s.severity === 'CRITICAL' || s.problemType === 'BOTH').length;
+    
+    console.log(`\n${'✅'.repeat(40)}`);
+    console.log(`✅ AI ACTION PLAN GENERATION COMPLETE!`);
+    console.log(`✅ Total Plans Generated: ${allStoresWithPlans.length}`);
+    console.log(`✅ Critical Stores: ${criticalCount}`);
+    console.log(`✅ Total Revenue Loss: ₹${totalLoss.toLocaleString()}`);
+    console.log(`✅ Total Cancellations: ${allCancellations}`);
+    console.log(`✅ Estimated Recovery: ₹${estimatedRecovery.toLocaleString()}`);
+    console.log(`${'✅'.repeat(40)}\n`);
     
     return {
       summary: {

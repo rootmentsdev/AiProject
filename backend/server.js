@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 const app = express();
 
 // ✅ Set API key directly in server.js (no .env file needed)
-const OPENROUTER_API_KEY = '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';
+const OPENROUTER_API_KEY = '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';
 process.env.OPENROUTER_API_KEY = OPENROUTER_API_KEY;
 
 console.log("🔐 Loaded API Key:", OPENROUTER_API_KEY.slice(0, 10) + '...');

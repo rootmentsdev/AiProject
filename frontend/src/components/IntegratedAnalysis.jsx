@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
-import { Card, Table, Row, Col, Button, Alert, Spinner, Badge } from 'react-bootstrap';
+import { Card, Table, Row, Col, Button, Alert, Spinner, Badge, Collapse } from 'react-bootstrap';
 
 const IntegratedAnalysis = () => {
   const [analysisData, setAnalysisData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [expandedRows, setExpandedRows] = useState({});
 
   const performAnalysis = async () => {
+    console.log('🚀 Frontend: Starting analysis request...');
     setLoading(true);
     setError(null);
     
     try {
+      console.log('📤 Frontend: Sending POST to http://localhost:5000/api/integrated-analysis');
       const response = await fetch('http://localhost:5000/api/integrated-analysis', {
         method: 'POST',
         headers: {
@@ -18,18 +21,24 @@ const IntegratedAnalysis = () => {
         }
       });
 
+      console.log('📥 Frontend: Response received, status:', response.status);
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('❌ Frontend: Error response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('✅ Frontend: Data received successfully:', data);
       setAnalysisData(data);
       
     } catch (err) {
-      console.error('Analysis failed:', err);
+      console.error('❌ Frontend: Analysis failed:', err);
       setError(err.message);
     } finally {
       setLoading(false);
+      console.log('🏁 Frontend: Analysis request completed');
     }
   };
 
@@ -40,6 +49,13 @@ const IntegratedAnalysis = () => {
       case 'MEDIUM': return 'info';
       default: return 'secondary';
     }
+  };
+
+  const toggleRow = (index) => {
+    setExpandedRows(prev => ({
+      ...prev,
+      [index]: !prev[index]
+    }));
   };
 
   return (
@@ -157,169 +173,229 @@ const IntegratedAnalysis = () => {
 
           {/* All Stores with Issues - Table Format */}
           {analysisData.allStores && analysisData.allStores.length > 0 && (
-            <Row className="mb-4">
+            <Row className="mb-4" style={{ animation: 'fadeIn 0.5s ease-in' }}>
               <Col>
                 <Card className="border-0 shadow-sm">
                   <Card.Header className="bg-primary text-white py-3">
                     <h5 className="mb-0">
                       <i className="fas fa-table me-2"></i>
                       All Stores with Cancellations - Action Plans
+                      <Badge bg="light" text="dark" className="ms-3">
+                        {analysisData.allStores.length} Stores
+                      </Badge>
                     </h5>
                   </Card.Header>
-                  <Card.Body>
+                  <Card.Body className="p-0">
                     <Table responsive hover className="mb-0">
-                      <thead className="bg-light">
+                      <thead style={{ backgroundColor: '#f8f9fa', position: 'sticky', top: 0, zIndex: 1 }}>
                         <tr>
-                          <th>#</th>
-                          <th>Store Name</th>
-                          <th>DSR Status</th>
-                          <th>Cancellations</th>
-                          <th>Top Cancel Reason</th>
-                          <th>Severity</th>
-                          <th>Action Plan</th>
+                          <th style={{ width: '50px' }}>#</th>
+                          <th style={{ width: '180px' }}>Store Name</th>
+                          <th style={{ width: '140px' }}>DSR Status</th>
+                          <th style={{ width: '100px' }} className="text-center">Cancellations</th>
+                          <th style={{ width: '250px' }}>Top Cancel Reason</th>
+                          <th style={{ width: '120px' }} className="text-center">Severity</th>
+                          <th style={{ width: '120px' }} className="text-center">Action Plan</th>
                         </tr>
                       </thead>
                       <tbody>
                         {analysisData.allStores.map((store, index) => (
-                          <tr key={index}>
-                            <td>{index + 1}</td>
-                            <td>
-                              <strong>{store.storeName}</strong>
-                              {store.cancellationStoreName !== store.storeName && (
-                                <><br/><small className="text-muted">({store.cancellationStoreName})</small></>
-                              )}
-                            </td>
-                            <td>
-                              {store.dsrStatus === 'GOOD' ? (
-                                <Badge bg="success">✓ Good DSR</Badge>
-                              ) : (
-                                <Badge bg="danger">✗ Poor DSR</Badge>
-                              )}
-                              <br/>
-                              <small className="text-muted">
-                                {store.dsrLoss > 0 ? `Loss: ₹${store.dsrLoss.toLocaleString()}` : 'No loss'}
-                              </small>
-                            </td>
-                            <td>
-                              <Badge bg="warning" text="dark" className="px-3">
-                                {store.totalCancellations}
-                              </Badge>
-                            </td>
-                            <td>
-                              <small>
-                                {store.cancellationReasons[0]?.reason.substring(0, 40) || 'N/A'}
-                                {store.cancellationReasons[0]?.reason.length > 40 && '...'}
-                              </small>
-                            </td>
-                            <td>
-                              <Badge bg={getSeverityColor(store.severity)}>
-                                {store.severity}
-                              </Badge>
-                            </td>
-                            <td>
-                              <Button 
-                                size="sm" 
-                                variant="outline-primary"
-                                onClick={() => {
-                                  const modal = document.getElementById(`modal-${index}`);
-                                  if (modal) modal.style.display = 'block';
-                                }}
-                              >
-                                <i className="fas fa-eye me-1"></i>
-                                View Plan
-                              </Button>
-                              
-                              {/* Hidden Modal Content */}
-                              <div id={`modal-${index}`} style={{display: 'none'}}>
-                                <Card className="mt-3 border-primary">
-                                  <Card.Header className="bg-primary text-white">
-                                    <strong>{store.storeName} - Action Plan</strong>
-                                  </Card.Header>
-                                  <Card.Body>
-                                    {/* DSR Issues */}
-                                    <div className="mb-3">
-                                      <h6 className="text-primary">
-                                        <i className="fas fa-chart-line me-2"></i>
-                                        DSR Status:
-                                      </h6>
-                                      <ul>
-                                        {store.dsrIssues?.map((issue, i) => (
-                                          <li key={i} className={store.dsrStatus === 'GOOD' ? 'text-success' : ''}>{issue}</li>
-                                        ))}
-                                      </ul>
-                                    </div>
-
-                                    {/* Cancellation Reasons */}
-                                    <div className="mb-3">
-                                      <h6 className="text-warning">
-                                        <i className="fas fa-times-circle me-2"></i>
-                                        Cancellation Problems:
-                                      </h6>
-                                      <ul>
-                                        {store.cancellationReasons?.map((reason, i) => (
-                                          <li key={i}>
-                                            {reason.reason} ({reason.count} times - {reason.percentage}%)
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-
-                                    {/* Action Plan */}
-                                    <div className="bg-light p-3 rounded">
-                                      <h6 className="text-success mb-3">
-                                        <i className="fas fa-bullseye me-2"></i>
-                                        CEO Action Plan:
-                                      </h6>
-                                      
-                                      <div className="mb-3">
-                                        <strong className="text-danger">Immediate (24-48 hours):</strong>
-                                        <ol className="mb-0 mt-2">
-                                          {store.actionPlan?.immediate?.map((action, i) => (
-                                            <li key={i}>{action}</li>
-                                          ))}
-                                        </ol>
-                                      </div>
-
-                                      <div className="mb-3">
-                                        <strong className="text-warning">Short-term (1-2 weeks):</strong>
-                                        <ol className="mb-0 mt-2">
-                                          {store.actionPlan?.shortTerm?.map((action, i) => (
-                                            <li key={i}>{action}</li>
-                                          ))}
-                                        </ol>
-                                      </div>
-
-                                      <div>
-                                        <strong className="text-info">Long-term (1-3 months):</strong>
-                                        <ol className="mb-0 mt-2">
-                                          {store.actionPlan?.longTerm?.map((action, i) => (
-                                            <li key={i}>{action}</li>
-                                          ))}
-                                        </ol>
-                                      </div>
-
-                                      <div className="mt-3 p-2 bg-success bg-opacity-10 rounded">
-                                        <strong className="text-success">Expected Impact:</strong>
-                                        <p className="mb-0 mt-1 small">{store.actionPlan?.expectedImpact}</p>
-                                      </div>
-                                    </div>
-                                  </Card.Body>
-                                  <Card.Footer className="text-end">
-                                    <Button 
-                                      size="sm" 
-                                      variant="secondary"
-                                      onClick={() => {
-                                        const modal = document.getElementById(`modal-${index}`);
-                                        if (modal) modal.style.display = 'none';
+                          <React.Fragment key={index}>
+                            <tr 
+                              style={{ 
+                                transition: 'all 0.3s ease',
+                                backgroundColor: expandedRows[index] ? '#f0f8ff' : 'white',
+                                animation: `slideIn 0.3s ease-out ${index * 0.1}s both`
+                              }}
+                              className={expandedRows[index] ? 'table-active' : ''}
+                            >
+                              <td style={{ verticalAlign: 'middle' }}>
+                                <strong>{index + 1}</strong>
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }}>
+                                <strong style={{ fontSize: '0.95rem' }}>{store.storeName}</strong>
+                                {store.cancellationStoreName !== store.storeName && (
+                                  <><br/><small className="text-muted">({store.cancellationStoreName})</small></>
+                                )}
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }}>
+                                {store.dsrStatus === 'GOOD' ? (
+                                  <Badge bg="success" className="px-3 py-2">
+                                    <i className="fas fa-check-circle me-1"></i>
+                                    Good DSR
+                                  </Badge>
+                                ) : (
+                                  <Badge bg="danger" className="px-3 py-2">
+                                    <i className="fas fa-exclamation-circle me-1"></i>
+                                    Poor DSR
+                                  </Badge>
+                                )}
+                                <br/>
+                                <small className="text-muted mt-1 d-block">
+                                  {store.dsrLoss > 0 ? `Loss: ₹${store.dsrLoss.toLocaleString()}` : 'No loss'}
+                                </small>
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }} className="text-center">
+                                <Badge bg="warning" text="dark" className="px-3 py-2" style={{ fontSize: '1rem' }}>
+                                  {store.totalCancellations}
+                                </Badge>
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }}>
+                                <small style={{ lineHeight: '1.4' }}>
+                                  {store.cancellationReasons[0]?.reason.substring(0, 50) || 'N/A'}
+                                  {store.cancellationReasons[0]?.reason.length > 50 && '...'}
+                                </small>
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }} className="text-center">
+                                <Badge 
+                                  bg={getSeverityColor(store.severity)} 
+                                  className="px-3 py-2"
+                                  style={{ fontSize: '0.85rem', minWidth: '90px' }}
+                                >
+                                  {store.severity}
+                                </Badge>
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }} className="text-center">
+                                <Button 
+                                  size="sm" 
+                                  variant={expandedRows[index] ? 'primary' : 'outline-primary'}
+                                  onClick={() => toggleRow(index)}
+                                  style={{ 
+                                    transition: 'all 0.3s ease',
+                                    minWidth: '100px'
+                                  }}
+                                >
+                                  <i className={`fas fa-${expandedRows[index] ? 'chevron-up' : 'eye'} me-1`}></i>
+                                  {expandedRows[index] ? 'Hide' : 'View Plan'}
+                                </Button>
+                              </td>
+                            </tr>
+                            
+                            {/* Expandable Action Plan Row */}
+                            <tr style={{ border: 'none' }}>
+                              <td colSpan="7" className="p-0" style={{ border: 'none' }}>
+                                <Collapse in={expandedRows[index]}>
+                                  <div>
+                                    <Card 
+                                      className="m-3 border-primary shadow-sm"
+                                      style={{ 
+                                        animation: expandedRows[index] ? 'expandIn 0.4s ease-out' : 'none',
+                                        borderLeft: '4px solid #0d6efd'
                                       }}
                                     >
-                                      Close
-                                    </Button>
-                                  </Card.Footer>
-                                </Card>
-                              </div>
-                            </td>
-                          </tr>
+                                      <Card.Header className="bg-gradient" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+                                        <strong>
+                                          <i className="fas fa-clipboard-list me-2"></i>
+                                          {store.storeName} - Detailed Action Plan
+                                        </strong>
+                                      </Card.Header>
+                                      <Card.Body>
+                                        <Row>
+                                          <Col md={6}>
+                                            {/* DSR Issues */}
+                                            <div className="mb-3">
+                                              <h6 className="text-primary">
+                                                <i className="fas fa-chart-line me-2"></i>
+                                                DSR Status:
+                                              </h6>
+                                              <ul className="list-unstyled ms-3">
+                                                {store.dsrIssues?.map((issue, i) => (
+                                                  <li key={i} className={`mb-2 ${store.dsrStatus === 'GOOD' ? 'text-success' : 'text-dark'}`}>
+                                                    <i className={`fas fa-${store.dsrStatus === 'GOOD' ? 'check' : 'arrow-right'} me-2`}></i>
+                                                    {issue}
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          </Col>
+                                          <Col md={6}>
+                                            {/* Cancellation Reasons */}
+                                            <div className="mb-3">
+                                              <h6 className="text-warning">
+                                                <i className="fas fa-times-circle me-2"></i>
+                                                Cancellation Problems:
+                                              </h6>
+                                              <ul className="list-unstyled ms-3">
+                                                {store.cancellationReasons?.map((reason, i) => (
+                                                  <li key={i} className="mb-2">
+                                                    <i className="fas fa-exclamation-triangle me-2 text-warning"></i>
+                                                    {reason.reason} 
+                                                    <Badge bg="secondary" className="ms-2">
+                                                      {reason.count}x ({reason.percentage}%)
+                                                    </Badge>
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          </Col>
+                                        </Row>
+
+                                        <hr/>
+
+                                        {/* Action Plan */}
+                                        <div className="bg-light p-3 rounded">
+                                          <h6 className="text-success mb-3">
+                                            <i className="fas fa-bullseye me-2"></i>
+                                            CEO Action Plan:
+                                          </h6>
+                                          
+                                          <Row>
+                                            <Col md={4}>
+                                              <div className="mb-3">
+                                                <div className="d-flex align-items-center mb-2">
+                                                  <Badge bg="danger" className="me-2">1</Badge>
+                                                  <strong className="text-danger">Immediate (24-48h)</strong>
+                                                </div>
+                                                <ol className="mb-0 ms-2">
+                                                  {store.actionPlan?.immediate?.map((action, i) => (
+                                                    <li key={i} className="mb-2 small">{action}</li>
+                                                  ))}
+                                                </ol>
+                                              </div>
+                                            </Col>
+                                            <Col md={4}>
+                                              <div className="mb-3">
+                                                <div className="d-flex align-items-center mb-2">
+                                                  <Badge bg="warning" text="dark" className="me-2">2</Badge>
+                                                  <strong className="text-warning">Short-term (1-2 weeks)</strong>
+                                                </div>
+                                                <ol className="mb-0 ms-2">
+                                                  {store.actionPlan?.shortTerm?.map((action, i) => (
+                                                    <li key={i} className="mb-2 small">{action}</li>
+                                                  ))}
+                                                </ol>
+                                              </div>
+                                            </Col>
+                                            <Col md={4}>
+                                              <div className="mb-3">
+                                                <div className="d-flex align-items-center mb-2">
+                                                  <Badge bg="info" className="me-2">3</Badge>
+                                                  <strong className="text-info">Long-term (1-3 months)</strong>
+                                                </div>
+                                                <ol className="mb-0 ms-2">
+                                                  {store.actionPlan?.longTerm?.map((action, i) => (
+                                                    <li key={i} className="mb-2 small">{action}</li>
+                                                  ))}
+                                                </ol>
+                                              </div>
+                                            </Col>
+                                          </Row>
+
+                                          <div className="mt-3 p-3 bg-success bg-opacity-10 rounded border border-success">
+                                            <strong className="text-success">
+                                              <i className="fas fa-chart-line me-2"></i>
+                                              Expected Impact:
+                                            </strong>
+                                            <p className="mb-0 mt-2">{store.actionPlan?.expectedImpact}</p>
+                                          </div>
+                                        </div>
+                                      </Card.Body>
+                                    </Card>
+                                  </div>
+                                </Collapse>
+                              </td>
+                            </tr>
+                          </React.Fragment>
                         ))}
                       </tbody>
                     </Table>
@@ -328,6 +404,44 @@ const IntegratedAnalysis = () => {
               </Col>
             </Row>
           )}
+
+          <style jsx="true">{`
+            @keyframes slideIn {
+              from {
+                opacity: 0;
+                transform: translateX(-20px);
+              }
+              to {
+                opacity: 1;
+                transform: translateX(0);
+              }
+            }
+            
+            @keyframes expandIn {
+              from {
+                opacity: 0;
+                transform: scaleY(0.8);
+              }
+              to {
+                opacity: 1;
+                transform: scaleY(1);
+              }
+            }
+            
+            @keyframes fadeIn {
+              from {
+                opacity: 0;
+              }
+              to {
+                opacity: 1;
+              }
+            }
+            
+            tr:hover {
+              box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+              transform: translateY(-1px);
+            }
+          `}</style>
 
           {/* Old card-based view - REMOVED */}
           {analysisData.criticalStores_OLD && analysisData.criticalStores_OLD.length > 0 && (
