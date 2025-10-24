@@ -1,4 +1,6 @@
 const axios = require('axios');
+const { getActionPlanPrompt, ACTION_PLAN_SYSTEM_PROMPT } = require('../config/actionPlanPrompts');
+const promptLogger = require('../utils/promptLogger');
 
 class ActionPlanGenerator {
   constructor() {
@@ -16,44 +18,60 @@ class ActionPlanGenerator {
     const maxRetries = 3;
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim();
     
-    console.log("🎯 Generating AI-powered action plan...");
+    console.log("🎯 Generating AI-powered action plan based on DSR-Cancellation correlation...");
     
     if (!OPENROUTER_API_KEY) {
       throw new Error('OpenRouter API key not found');
     }
 
-    const prompt = this.getActionPlanPrompt(dsrAnalysis, cancellationAnalysis, comparisonAnalysis);
+    // Extract correlation data for prompt
+    const storeCorrelations = comparisonAnalysis?.problemCorrelation?.correlations || [];
+    const totalLoss = dsrAnalysis?.lossAnalysis?.totalLoss || 0;
+    const totalCancellations = cancellationAnalysis?.analysis?.totalCancellations || 0;
+    
+    const promptData = {
+      dsrProblems: comparisonAnalysis?.dsrProblems || [],
+      storeCorrelations: storeCorrelations,
+      totalLoss: totalLoss,
+      totalCancellations: totalCancellations
+    };
+    
+    const prompt = getActionPlanPrompt(promptData);
 
     try {
       const models = ['anthropic/claude-3-haiku', 'openai/gpt-3.5-turbo', 'mistralai/mistral-7b-instruct'];
       const selectedModel = models[retryCount] || models[0];
       
       console.log(`📨 Sending action plan generation request using ${selectedModel}... (attempt ${retryCount + 1}/${maxRetries + 1})`);
+      console.log(`📏 Prompt length: ${prompt.length} characters`);
       
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+      const requestBody = {
         model: selectedModel,
         messages: [
           { 
             role: "system", 
-            content: "You are an expert business consultant specializing in retail performance optimization and action planning. You excel at creating detailed, actionable plans that address root causes and drive measurable improvements. Always provide specific, time-bound actions with clear success metrics." 
+            content: ACTION_PLAN_SYSTEM_PROMPT
           },
           { role: "user", content: prompt }
         ],
         max_tokens: 4000,
         temperature: 0.2
-      }, {
+      };
+      
+      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', requestBody, {
         headers: {
           Authorization: `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
-          'X-Title': 'Action Plan Generator'
+          'HTTP-Referer': 'http://localhost:5000',
+          'X-Title': 'DSR Action Plan Generator'
         },
-        timeout: 30000
+        timeout: 60000
       });
 
       this.lastUsedModel = selectedModel;
 
       const raw = response.data.choices[0].message.content;
-      console.log("🔍 Raw Action Plan AI Response:", raw);
+      console.log("🔍 Raw Action Plan AI Response (first 500 chars):", raw.substring(0, 500) + "...");
       
       if (!raw || raw.trim() === '') {
         throw new Error("AI service returned empty response. Please try again.");
@@ -64,6 +82,16 @@ class ActionPlanGenerator {
       try {
         const parsed = JSON.parse(cleanedResponse);
         console.log("✅ Successfully parsed AI-generated action plan");
+        
+        // Save prompt and response for auditing
+        await promptLogger.savePromptLog(prompt, parsed, {
+          model: selectedModel,
+          dsrProblemsCount: promptData.dsrProblems.length,
+          correlationsCount: promptData.storeCorrelations.length,
+          totalLoss: promptData.totalLoss,
+          totalCancellations: promptData.totalCancellations
+        });
+        
         return parsed;
       } catch (parseError) {
         console.error("❌ JSON Parse Error:", parseError.message);
@@ -73,6 +101,22 @@ class ActionPlanGenerator {
       
     } catch (error) {
       console.error("❌ Action Plan Generation Failed:", error.message);
+      console.error("❌ Error status:", error.response?.status);
+      if (error.response?.data) {
+        console.error("❌ API Error Details:", JSON.stringify(error.response.data, null, 2));
+      }
+      
+      // Handle bad request (400) - invalid request format - throw to see the actual error
+      if (error.response?.status === 400) {
+        const errorMsg = error.response?.data?.error?.message || error.response?.data?.message || 'Bad request';
+        throw new Error(`OpenRouter API 400 Error: ${errorMsg}`);
+      }
+      
+      // Handle payment/credit issues (402) - use fallback
+      if (error.response?.status === 402) {
+        console.log("⚠️ API credits exhausted (402 Payment Required). Using fallback action plan.");
+        return this.createFallbackActionPlan(dsrAnalysis, cancellationAnalysis, comparisonAnalysis);
+      }
       
       if (retryCount < maxRetries && (
         error.code === 'ECONNRESET' || 
@@ -87,23 +131,31 @@ class ActionPlanGenerator {
       }
       
       if (error.response?.status === 401) {
-        throw new Error('API authentication failed. Please check your OpenRouter API key.');
+        console.log("⚠️ API authentication failed. Using fallback action plan.");
+        return this.createFallbackActionPlan(dsrAnalysis, cancellationAnalysis, comparisonAnalysis);
       } else if (error.response?.status === 429) {
-        throw new Error('API rate limit exceeded. Please try again later.');
+        console.log("⚠️ API rate limit exceeded. Using fallback action plan.");
+        return this.createFallbackActionPlan(dsrAnalysis, cancellationAnalysis, comparisonAnalysis);
       }
       
-      throw new Error(`Failed to connect to AI service: ${error.message}`);
+      // For any other error, use fallback instead of throwing
+      console.log("⚠️ AI service unavailable. Using fallback action plan.");
+      return this.createFallbackActionPlan(dsrAnalysis, cancellationAnalysis, comparisonAnalysis);
     }
   }
 
   /**
-   * Get comprehensive action plan prompt
-   * @param {Object} dsrAnalysis - DSR analysis results
-   * @param {Object} cancellationAnalysis - Cancellation analysis results
-   * @param {Object} comparisonAnalysis - Comparison analysis results
-   * @returns {string} Action plan generation prompt
+   * Legacy method - now using prompts from config file
+   * @deprecated Use getActionPlanPrompt from config/actionPlanPrompts.js
    */
-  getActionPlanPrompt(dsrAnalysis, cancellationAnalysis, comparisonAnalysis) {
+  getActionPlanPrompt_OLD(dsrAnalysis, cancellationAnalysis, comparisonAnalysis) {
+    // Extract key information to keep prompt concise
+    const problemStores = dsrAnalysis?.problemStores?.slice(0, 5) || [];
+    const totalLoss = dsrAnalysis?.lossAnalysis?.totalLoss || 0;
+    const totalCancellations = cancellationAnalysis?.analysis?.totalCancellations || 0;
+    const topCancellationReasons = cancellationAnalysis?.analysis?.topCancellationReasons?.slice(0, 3) || [];
+    const keyInsights = comparisonAnalysis?.integratedInsights?.insights?.slice(0, 5) || [];
+    
     return `# Comprehensive Action Plan Generation
 
 You are an expert business consultant tasked with creating a detailed action plan to address retail performance issues identified through DSR analysis and rental cancellation data.
@@ -111,13 +163,17 @@ You are an expert business consultant tasked with creating a detailed action pla
 ## 📊 Analysis Summary:
 
 ### DSR Analysis Results:
-${JSON.stringify(dsrAnalysis, null, 2)}
+- Total Loss: ${totalLoss}
+- Problem Stores: ${problemStores.length}
+${problemStores.map(store => `  - ${store.storeName || store.name}: Loss ${store.totalLoss || 0}, Issues: ${store.issues?.join(', ') || 'N/A'}`).join('\n')}
 
 ### Cancellation Analysis Results:
-${JSON.stringify(cancellationAnalysis, null, 2)}
+- Total Cancellations: ${totalCancellations}
+- Top Cancellation Reasons:
+${topCancellationReasons.map(r => `  - ${r.reason}: ${r.count} (${r.percentage}%)`).join('\n')}
 
-### Comparison Analysis Results:
-${JSON.stringify(comparisonAnalysis, null, 2)}
+### Key Integrated Insights:
+${keyInsights.map(i => `- ${i.message} (${i.severity || i.type})`).join('\n')}
 
 ## 🎯 Action Plan Requirements:
 
@@ -317,118 +373,89 @@ The analysis shows that cancellation issues may be causing DSR performance probl
   createFallbackActionPlan(dsrAnalysis, cancellationAnalysis, comparisonAnalysis) {
     console.log("🔄 Creating fallback action plan");
     
+    // Extract actual DSR problems for fallback plan
+    const dsrProblems = comparisonAnalysis?.dsrProblems || [];
+    const storeActions = [];
+    
+    if (dsrProblems.length > 0) {
+      console.log(`Creating actions for ${dsrProblems.length} problem stores`);
+      dsrProblems.forEach(problem => {
+        storeActions.push({
+          storeName: problem.store,
+          dsrProblem: problem.issue,
+          cancellationIssues: [],
+          rootCause: `${problem.issue} identified in DSR analysis`,
+          immediateActions: [
+            {
+              action: `Address ${problem.issue} at ${problem.store}`,
+              why: "DSR analysis shows performance below target",
+              timeline: "2 weeks",
+              expectedImpact: "15-20% improvement in store performance"
+            },
+            {
+              action: "Conduct root cause analysis",
+              why: "Identify specific factors affecting performance",
+              timeline: "1 week",
+              expectedImpact: "Clear understanding of issues"
+            }
+          ],
+          priority: problem.loss > 10000 ? "HIGH" : "MEDIUM"
+        });
+      });
+    }
+    
+    const totalLoss = dsrAnalysis?.lossAnalysis?.totalLoss || 0;
+    const problemCount = dsrProblems.length;
+    
     return {
       executiveSummary: {
-        totalLoss: "₹1,23,000",
-        criticalIssues: "3",
-        priorityLevel: "HIGH",
-        estimatedRecovery: "₹85,000",
-        timeline: "3 months"
+        totalLoss: `₹${totalLoss}`,
+        totalCancellations: cancellationAnalysis?.analysis?.totalCancellations || 0,
+        criticalStores: problemCount,
+        priorityLevel: problemCount > 3 ? "HIGH" : "MEDIUM",
+        dateAnalyzed: new Date().toISOString().split('T')[0]
       },
+      storeSpecificActions: storeActions,
+      generalRecommendations: [
+        {
+          category: "PROCESS",
+          recommendation: "Implement daily performance monitoring for all problem stores",
+          affectedStores: dsrProblems.map(p => p.store),
+          timeline: "Immediate"
+        }
+      ],
       immediateActions: [
         {
           actionId: "IA001",
-          title: "Emergency Staff Training",
-          description: "Conduct immediate customer service training for all staff at problem stores",
-          priority: "CRITICAL",
-          timeline: "1 week",
-          responsible: "Store Managers",
-          resources: "Training materials, external trainer",
-          successMetrics: ["Customer satisfaction score", "Conversion rate improvement"],
-          expectedImpact: "Improved customer service and reduced cancellations",
-          stores: ["Trissur", "Kochi"],
-          cost: "₹25,000"
-        },
-        {
-          actionId: "IA002",
-          title: "Quality Control Implementation",
-          description: "Implement immediate quality control checkpoints at all stores",
+          title: "Address DSR Performance Issues",
+          description: `Focus on ${problemCount} stores with performance problems identified in DSR`,
           priority: "HIGH",
           timeline: "2 weeks",
-          responsible: "Quality Manager",
-          resources: "Quality control checklist, staff training",
-          successMetrics: ["Quality defect rate", "Customer complaints"],
-          expectedImpact: "Reduced quality-related cancellations",
-          stores: ["All stores"],
-          cost: "₹15,000"
-        }
-      ],
-      strategicActions: [
-        {
-          actionId: "SA001",
-          title: "Integrated Performance Monitoring System",
-          description: "Implement real-time monitoring system for both retail and rental performance",
-          category: "TECHNOLOGY",
-          timeline: "2 months",
-          responsible: "IT Department",
-          resources: "Software development, system integration",
-          successMetrics: ["Real-time reporting", "Performance tracking accuracy"],
-          expectedImpact: "Better visibility into performance issues",
-          implementationSteps: ["System design", "Development", "Testing", "Deployment"],
+          responsible: "Store Managers",
+          resources: "Management support, training materials",
+          successMetrics: ["DSR improvement", "Loss reduction"],
+          expectedImpact: "15-25% improvement in store performance",
+          stores: dsrProblems.map(p => p.store),
           cost: "₹50,000"
-        }
-      ],
-      storeSpecificActions: [
-        {
-          storeName: "Trissur",
-          actions: [
-            {
-              actionId: "SSA001",
-              title: "Trissur Store Intervention",
-              description: "Immediate intervention and support for Trissur store",
-              priority: "HIGH",
-              timeline: "2 weeks",
-              expectedImpact: "Significant improvement in store performance"
-            }
-          ]
-        }
+        },
       ],
       successMetrics: {
         financial: {
-          targetRevenueIncrease: "₹1,00,000",
-          targetLossReduction: "₹75,000",
-          targetCancellationReduction: "30%"
+          targetRevenueIncrease: `₹${Math.round(totalLoss * 0.6)}`,
+          targetLossReduction: `₹${Math.round(totalLoss * 0.5)}`,
+          targetCancellationReduction: "20%"
         },
         operational: {
-          targetConversionRate: "75%",
-          targetCustomerSatisfaction: "4.5/5",
-          targetStaffPerformance: "90%"
+          targetConversionRate: "Improve by 10-15%",
+          targetCustomerSatisfaction: "4.0/5 minimum",
+          targetStaffPerformance: "Meet DSR targets"
         },
         timeline: {
-          immediateResults: "1 month",
-          shortTermResults: "2 months",
-          longTermResults: "3 months"
+          immediateResults: "2 weeks",
+          shortTermResults: "1 month",
+          longTermResults: "2 months"
         }
-      },
-      riskAssessment: [
-        {
-          risk: "Staff resistance to changes",
-          probability: "MEDIUM",
-          impact: "HIGH",
-          mitigation: "Change management and communication plan"
-        }
-      ],
-      resourceRequirements: {
-        budget: "₹90,000",
-        staff: ["Store Managers", "Quality Manager", "IT Team"],
-        technology: ["Performance monitoring system"],
-        training: ["Customer service training", "Quality control training"],
-        externalSupport: ["Training consultants"]
-      },
-      implementationTimeline: [
-        {
-          phase: "Phase 1 - Immediate Actions",
-          duration: "2 weeks",
-          actions: ["Emergency training", "Quality control"],
-          milestones: ["Training completion", "QC implementation"]
-        },
-        {
-          phase: "Phase 2 - Strategic Implementation",
-          duration: "2 months",
-          actions: ["System development", "Process optimization"],
-          milestones: ["System deployment", "Process implementation"]
-        }
-      ]
+      }
     };
   }
 

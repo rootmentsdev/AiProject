@@ -7,6 +7,79 @@ class ComparisonService {
   }
 
   /**
+   * Fuzzy match store names to handle variations
+   * Examples: "Edapally" matches "SG.Edappal", "Z- Edapally", "SG-Edappally"
+   * @param {string} dsrStoreName - Store name from DSR
+   * @param {string} cancellationStoreName - Store name from cancellation API
+   * @returns {boolean} True if names match
+   */
+  fuzzyMatchStoreName(dsrStoreName, cancellationStoreName) {
+    if (!dsrStoreName || !cancellationStoreName) return false;
+    
+    // Normalize: lowercase, remove special chars, extra spaces
+    const normalize = (str) => str.toLowerCase()
+      .replace(/[^a-z0-9]/g, ' ')  // Remove special chars
+      .replace(/\s+/g, ' ')         // Collapse multiple spaces
+      .trim();
+    
+    const dsr = normalize(dsrStoreName);
+    const cancel = normalize(cancellationStoreName);
+    
+    // Exact match after normalization
+    if (dsr === cancel) return true;
+    
+    // Check if either contains the other (for partial matches)
+    if (dsr.includes(cancel) || cancel.includes(dsr)) return true;
+    
+    // Extract location keywords (e.g., "edappal", "kochi", "calicut")
+    const getKeywords = (str) => {
+      return normalize(str)
+        .split(' ')
+        .filter(word => word.length > 3)  // Only words with 4+ chars
+        .filter(word => !['store', 'suit', 'suitor', 'guy'].includes(word)); // Exclude common words
+    };
+    
+    const dsrKeywords = getKeywords(dsrStoreName);
+    const cancelKeywords = getKeywords(cancellationStoreName);
+    
+    // Check if any keywords match
+    for (const dsrWord of dsrKeywords) {
+      for (const cancelWord of cancelKeywords) {
+        // Similar keywords (allow small variations like "edappal" vs "edapally")
+        if (dsrWord.includes(cancelWord) || cancelWord.includes(dsrWord)) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Find matching cancellation store for a DSR store
+   * @param {string} dsrStoreName - Store name from DSR
+   * @param {Object} storeWiseProblems - Store-wise cancellation data
+   * @returns {Object|null} Matching cancellation data or null
+   */
+  findMatchingCancellationStore(dsrStoreName, storeWiseProblems) {
+    if (!storeWiseProblems) return null;
+    
+    // First try exact match
+    if (storeWiseProblems[dsrStoreName]) {
+      return { storeName: dsrStoreName, data: storeWiseProblems[dsrStoreName] };
+    }
+    
+    // Try fuzzy matching
+    for (const [cancelStoreName, data] of Object.entries(storeWiseProblems)) {
+      if (this.fuzzyMatchStoreName(dsrStoreName, cancelStoreName)) {
+        return { storeName: cancelStoreName, data: data };
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Compare DSR losses with cancellation data to identify patterns
    * @param {Object} dsrAnalysis - DSR analysis results
    * @param {Object} cancellationAnalysis - Cancellation analysis results
@@ -16,12 +89,31 @@ class ComparisonService {
     try {
       console.log("🔍 Comparing DSR losses with cancellation data...");
       
+      // Step 1: First identify DSR problems
+      console.log("\n" + "=".repeat(80));
+      console.log("🎯 STEP 1: DSR PROBLEMS IDENTIFIED");
+      console.log("=".repeat(80));
+      const dsrProblems = this.extractDSRProblems(dsrAnalysis);
+      dsrProblems.forEach((problem, index) => {
+        console.log(`${index + 1}. ${problem.store}: ${problem.issue} (Loss: ₹${problem.loss})`);
+      });
+      console.log("=".repeat(80) + "\n");
+      
+      // Step 2: Correlate DSR problems with cancellation reasons
+      console.log("=".repeat(80));
+      console.log("🔗 STEP 2: CORRELATING DSR PROBLEMS WITH CANCELLATION REASONS");
+      console.log("=".repeat(80));
+      const problemCorrelation = this.correlateDSRWithCancellations(dsrProblems, cancellationAnalysis);
+      console.log("=".repeat(80) + "\n");
+      
       const comparison = {
+        dsrProblems: dsrProblems,
+        problemCorrelation: problemCorrelation,
         correlationAnalysis: this.analyzeCorrelations(dsrAnalysis, cancellationAnalysis),
         patternMatching: this.findPatterns(dsrAnalysis, cancellationAnalysis),
         impactAssessment: this.assessImpact(dsrAnalysis, cancellationAnalysis),
         rootCauseAnalysis: this.analyzeRootCauses(dsrAnalysis, cancellationAnalysis),
-        integratedInsights: this.generateIntegratedInsights(dsrAnalysis, cancellationAnalysis)
+        integratedInsights: this.generateIntegratedInsights(dsrAnalysis, cancellationAnalysis, problemCorrelation)
       };
 
       console.log("✅ Comparison analysis completed");
@@ -38,6 +130,150 @@ class ComparisonService {
         error: error.message
       };
     }
+  }
+
+  /**
+   * Extract DSR problems from analysis
+   * @param {Object} dsrAnalysis - DSR analysis data
+   * @returns {Array} Array of DSR problems
+   */
+  extractDSRProblems(dsrAnalysis) {
+    const problems = [];
+    
+    console.log("🔍 Extracting DSR problems...");
+    console.log("DSR Analysis keys:", Object.keys(dsrAnalysis || {}));
+    
+    if (dsrAnalysis && dsrAnalysis.problemStores) {
+      console.log(`Found ${dsrAnalysis.problemStores.length} problem stores`);
+      
+      dsrAnalysis.problemStores.forEach(store => {
+        const storeName = store.storeName || store.name || store.Name || 'Unknown Store';
+        
+        // AI response uses different field names - check all possibilities
+        const issues = store.issues || store.Issues || store.rootCauses || store.immediateActions || [];
+        const loss = store.totalLoss || store.TotalLoss || store.loss || 
+                     store.revenueLoss || store.opportunityLoss || 0;
+        
+        // Convert issues to array if it's not already
+        const issuesArray = Array.isArray(issues) ? issues : [];
+        
+        console.log(`  Store: ${storeName}, Issues: ${issuesArray.length}, Loss: ₹${loss}`);
+        
+        if (issuesArray.length > 0) {
+          // Take first 3 issues to avoid too many
+          issuesArray.slice(0, 3).forEach(issue => {
+            problems.push({
+              store: storeName,
+              issue: typeof issue === 'string' ? issue : (issue.action || issue.cause || 'Performance issue'),
+              loss: loss,
+              details: store
+            });
+          });
+        } else {
+          // Fallback: use performance rating or generic issue
+          const performanceIssue = store.performance ? 
+            `${store.performance} performance` : 
+            "Performance below target";
+          
+          problems.push({
+            store: storeName,
+            issue: performanceIssue,
+            loss: loss,
+            details: store
+          });
+        }
+      });
+    } else {
+      console.log("⚠️ No problemStores found in DSR analysis");
+      console.log("DSR Analysis structure:", JSON.stringify(dsrAnalysis, null, 2).substring(0, 500));
+    }
+    
+    console.log(`✅ Extracted ${problems.length} DSR problems`);
+    return problems;
+  }
+
+  /**
+   * Correlate DSR problems with cancellation data
+   * @param {Array} dsrProblems - DSR problems
+   * @param {Object} cancellationAnalysis - Cancellation analysis data
+   * @returns {Object} Correlation results
+   */
+  correlateDSRWithCancellations(dsrProblems, cancellationAnalysis) {
+    const correlations = [];
+    
+    // Handle case where no DSR problems
+    if (!dsrProblems || dsrProblems.length === 0) {
+      console.log("⚠️ No DSR problems identified");
+      return { correlations: [], summary: "No DSR problems identified" };
+    }
+    
+    const storeWiseProblems = cancellationAnalysis?.analysis?.storeWiseProblems || {};
+    const hasCancellationData = cancellationAnalysis && cancellationAnalysis.analysis;
+    
+    console.log(`\nAnalyzing ${dsrProblems.length} stores with DSR problems...`);
+    
+    dsrProblems.forEach(dsrProblem => {
+      const storeName = dsrProblem.store;
+      
+      // Use fuzzy matching to find corresponding cancellation store
+      const matchResult = this.findMatchingCancellationStore(storeName, storeWiseProblems);
+      
+      if (hasCancellationData && matchResult) {
+        const storeCancellations = matchResult.data;
+        const cancellationStoreName = matchResult.storeName;
+        console.log(`\n✓ ${storeName} → MATCHED with "${cancellationStoreName}":`);
+        console.log(`  DSR Issue: ${dsrProblem.issue} (Loss: ₹${dsrProblem.loss})`);
+        console.log(`  Cancellations: ${storeCancellations.totalCancellations}`);
+        console.log(`  Top Cancellation Reasons:`);
+        
+        // Safely access topReasons with validation
+        const topReasons = storeCancellations.topReasons || [];
+        const validReasons = topReasons.filter(r => r && r.reason).slice(0, 3);
+        
+        if (validReasons.length > 0) {
+          validReasons.forEach((reason, i) => {
+            console.log(`     ${i + 1}) ${reason.reason}: ${reason.count} (${reason.percentage}%)`);
+          });
+        } else {
+          console.log(`     No specific reasons available`);
+        }
+        
+        correlations.push({
+          store: storeName,
+          cancellationStoreName: cancellationStoreName,
+          matched: true,
+          dsrIssue: dsrProblem.issue,
+          dsrLoss: dsrProblem.loss,
+          dsrDetails: dsrProblem.details,
+          cancellations: storeCancellations.totalCancellations,
+          topCancellationReasons: validReasons,
+          correlation: storeCancellations.totalCancellations > 5 ? "HIGH" : "MEDIUM"
+        });
+      } else {
+        console.log(`\n○ ${storeName}:`);
+        console.log(`  DSR Issue: ${dsrProblem.issue} (Loss: ₹${dsrProblem.loss})`);
+        console.log(`  Cancellations: None on DSR date`);
+        console.log(`  Note: Not checking nearby dates`);
+        console.log(`  → Action plan will address DSR problem directly`);
+        
+        correlations.push({
+          store: storeName,
+          dsrIssue: dsrProblem.issue,
+          dsrLoss: dsrProblem.loss,
+          cancellations: 0,
+          topCancellationReasons: [],
+          correlation: "NONE"
+        });
+      }
+    });
+    
+    const withCancellations = correlations.filter(c => c.correlation !== "NONE").length;
+    const withoutCancellations = correlations.length - withCancellations;
+    
+    return {
+      correlations: correlations,
+      summary: `Analyzed ${correlations.length} stores: ${withCancellations} with cancellations, ${withoutCancellations} without cancellations (will still get action plans)`
+    };
   }
 
   /**
@@ -270,7 +506,7 @@ class ComparisonService {
    * @param {Object} cancellationAnalysis - Cancellation analysis data
    * @returns {Object} Integrated insights
    */
-  generateIntegratedInsights(dsrAnalysis, cancellationAnalysis) {
+  generateIntegratedInsights(dsrAnalysis, cancellationAnalysis, problemCorrelation = null) {
     const insights = [];
 
     // Analyze if DSR problems are caused by cancellation issues
@@ -305,16 +541,18 @@ class ComparisonService {
     }
 
     // Cancellation reason insights with DSR correlation
-    if (cancellationAnalysis.analysis?.topCancellationReasons) {
+    if (cancellationAnalysis.analysis?.topCancellationReasons && cancellationAnalysis.analysis.topCancellationReasons.length > 0) {
       const topReason = cancellationAnalysis.analysis.topCancellationReasons[0];
-      const dsrImpact = this.assessCancellationReasonImpactOnDSR(topReason, dsrAnalysis);
-      insights.push({
-        type: "cancellation_reason",
-        message: `Primary cancellation reason: ${topReason.reason} (${topReason.percentage}%) - ${dsrImpact}`,
-        severity: "MEDIUM",
-        recommendation: `Address ${topReason.reason} issues to reduce both cancellations and DSR losses`,
-        dsrImpact: dsrImpact
-      });
+      if (topReason && topReason.reason) {
+        const dsrImpact = this.assessCancellationReasonImpactOnDSR(topReason, dsrAnalysis);
+        insights.push({
+          type: "cancellation_reason",
+          message: `Primary cancellation reason: ${topReason.reason} (${topReason.percentage}%) - ${dsrImpact}`,
+          severity: "MEDIUM",
+          recommendation: `Address ${topReason.reason} issues to reduce both cancellations and DSR losses`,
+          dsrImpact: dsrImpact
+        });
+      }
     }
 
     return {
@@ -550,8 +788,12 @@ class ComparisonService {
    * @returns {string} Impact assessment
    */
   assessCancellationReasonImpactOnDSR(reason, dsrAnalysis) {
+    if (!reason || !reason.reason) {
+      return "Impact unclear - insufficient data";
+    }
+    
     const reasonType = reason.reason;
-    const percentage = reason.percentage;
+    const percentage = reason.percentage || 0;
     
     // Map cancellation reasons to DSR impact
     const impactMap = {
@@ -621,11 +863,13 @@ class ComparisonService {
 
     // Identify primary causes
     if (cancellationAnalysis.analysis?.topCancellationReasons) {
-      analysis.primaryCauses = cancellationAnalysis.analysis.topCancellationReasons.map(reason => ({
-        reason: reason.reason,
-        percentage: reason.percentage,
-        impact: this.assessCancellationReasonImpactOnDSR(reason, dsrAnalysis)
-      }));
+      analysis.primaryCauses = cancellationAnalysis.analysis.topCancellationReasons
+        .filter(reason => reason && reason.reason) // Only include valid reasons
+        .map(reason => ({
+          reason: reason.reason,
+          percentage: reason.percentage || 0,
+          impact: this.assessCancellationReasonImpactOnDSR(reason, dsrAnalysis)
+        }));
     }
 
     // Generate recommended actions

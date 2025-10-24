@@ -3,42 +3,73 @@
  */
 
 /**
- * Convert DSR sheet date format (MM/DD/YYYY) to cancellation API format (YYYY-M-D)
- * @param {string} dsrDate - Date in format MM/DD/YYYY (e.g., "12/8/2025")
- * @returns {string} Date in format YYYY-M-D (e.g., "2025-12-8")
+ * Convert DSR sheet date format to cancellation API format (YYYY-M-D)
+ * Tries both MM/DD/YYYY and DD/MM/YYYY formats
+ * @param {string} dsrDate - Date in format MM/DD/YYYY or DD/MM/YYYY (e.g., "12/8/2025" or "8/12/2025")
+ * @returns {string} Date in format YYYY-M-D (e.g., "2025-8-12")
  */
 function convertDSRDateToAPIDate(dsrDate) {
   if (!dsrDate) {
     console.log("⚠️ No DSR date provided, using default date");
-    return "2025-12-8"; // Default to the known DSR sheet date
+    return "2025-8-12"; // Default to August 12, 2025 (DD/MM format: 12/8/2025)
   }
 
   try {
-    // Parse the DSR date (MM/DD/YYYY)
+    // Parse the DSR date
     const dateParts = dsrDate.split('/');
     if (dateParts.length !== 3) {
       throw new Error("Invalid date format");
     }
 
-    const month = parseInt(dateParts[0], 10);
-    const day = parseInt(dateParts[1], 10);
+    const part1 = parseInt(dateParts[0], 10);
+    const part2 = parseInt(dateParts[1], 10);
     const year = parseInt(dateParts[2], 10);
 
     // Validate date parts
-    if (isNaN(month) || isNaN(day) || isNaN(year)) {
+    if (isNaN(part1) || isNaN(part2) || isNaN(year)) {
       throw new Error("Invalid date components");
+    }
+
+    // Try to determine format by checking which interpretation is valid
+    // If part1 > 12, it must be DD/MM/YYYY format
+    // Otherwise, check if MM/DD/YYYY or DD/MM/YYYY makes more sense
+    let month, day, format;
+    
+    if (part1 > 12) {
+      // Must be DD/MM/YYYY
+      day = part1;
+      month = part2;
+      format = "DD/MM/YYYY";
+    } else if (part2 > 12) {
+      // Must be MM/DD/YYYY
+      month = part1;
+      day = part2;
+      format = "MM/DD/YYYY";
+    } else {
+      // Ambiguous - both could be valid
+      // Default to DD/MM/YYYY (Indian/European format) 
+      day = part1;
+      month = part2;
+      format = "DD/MM/YYYY (assumed)";
+      console.log(`⚠️ Ambiguous date format for "${dsrDate}" - assuming DD/MM/YYYY`);
+      console.log(`   If incorrect, use frontend date override with YYYY-M-D format`);
+    }
+
+    // Validate month and day ranges
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+      throw new Error(`Invalid date: month=${month}, day=${day}`);
     }
 
     // Convert to API format (YYYY-M-D)
     const apiDate = `${year}-${month}-${day}`;
     
-    console.log(`📅 Converted DSR date "${dsrDate}" to API date "${apiDate}"`);
+    console.log(`📅 Converted DSR date "${dsrDate}" (${format}) to API date "${apiDate}"`);
     return apiDate;
 
   } catch (error) {
     console.error("❌ Error converting DSR date:", error.message);
-    console.log("🔄 Using default date: 2025-12-8");
-    return "2025-12-8"; // Fallback to known DSR sheet date
+    console.log("🔄 Using default date: 2025-8-12");
+    return "2025-8-12"; // Fallback to August 12, 2025
   }
 }
 
