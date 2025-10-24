@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Button, Spinner, Alert, Nav, Tab } from 'react-bootstrap';
 import DSRAnalysisDashboard from './components/DSRAnalysisDashboard';
 import AIInsights from './components/AIInsights';
-import IntegratedAnalysisDashboard from './components/IntegratedAnalysisDashboard';
 import CancellationDataView from './components/CancellationDataView';
+import IntegratedAnalysis from './components/IntegratedAnalysis';
 import './App.css';
 
 function App() {
@@ -107,15 +107,15 @@ function App() {
                     </Nav.Link>
                   </Nav.Item>
                   <Nav.Item>
-                    <Nav.Link eventKey="integrated" className="border-0">
-                      <i className="fas fa-brain me-2"></i>
-                      AI Integrated Analysis
-                    </Nav.Link>
-                  </Nav.Item>
-                  <Nav.Item>
                     <Nav.Link eventKey="cancellation" className="border-0">
                       <i className="fas fa-times-circle me-2"></i>
                       Cancellation Data
+                    </Nav.Link>
+                  </Nav.Item>
+                  <Nav.Item>
+                    <Nav.Link eventKey="integrated" className="border-0">
+                      <i className="fas fa-brain me-2"></i>
+                      Action Plan
                     </Nav.Link>
                   </Nav.Item>
                 </Nav>
@@ -244,14 +244,14 @@ function App() {
               )}
             </Tab.Pane>
 
-            {/* Integrated Analysis Tab */}
-            <Tab.Pane eventKey="integrated">
-              <IntegratedAnalysisDashboard />
-            </Tab.Pane>
-
             {/* Cancellation Data Tab */}
             <Tab.Pane eventKey="cancellation">
               <CancellationDataView />
+            </Tab.Pane>
+
+            {/* Integrated Analysis Tab */}
+            <Tab.Pane eventKey="integrated">
+              <IntegratedAnalysis />
             </Tab.Pane>
           </Tab.Content>
         </Tab.Container>
