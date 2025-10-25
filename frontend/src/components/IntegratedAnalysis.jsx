@@ -189,13 +189,14 @@ const IntegratedAnalysis = () => {
                     <Table responsive hover className="mb-0">
                       <thead style={{ backgroundColor: '#f8f9fa', position: 'sticky', top: 0, zIndex: 1 }}>
                         <tr>
-                          <th style={{ width: '50px' }}>#</th>
-                          <th style={{ width: '180px' }}>Store Name</th>
-                          <th style={{ width: '140px' }}>DSR Status</th>
-                          <th style={{ width: '100px' }} className="text-center">Cancellations</th>
-                          <th style={{ width: '250px' }}>Top Cancel Reason</th>
-                          <th style={{ width: '120px' }} className="text-center">Severity</th>
-                          <th style={{ width: '120px' }} className="text-center">Action Plan</th>
+                          <th style={{ width: '40px' }}>#</th>
+                          <th style={{ width: '150px' }}>Store Name</th>
+                          <th style={{ width: '120px' }}>DSR Status</th>
+                          <th style={{ width: '120px' }} className="text-center">Staff Perf.</th>
+                          <th style={{ width: '80px' }} className="text-center">Cancels</th>
+                          <th style={{ width: '220px' }}>Top Cancel Reason</th>
+                          <th style={{ width: '100px' }} className="text-center">Severity</th>
+                          <th style={{ width: '100px' }} className="text-center">Action Plan</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -213,30 +214,53 @@ const IntegratedAnalysis = () => {
                                 <strong>{index + 1}</strong>
                               </td>
                               <td style={{ verticalAlign: 'middle' }}>
-                                <strong style={{ fontSize: '0.95rem' }}>{store.storeName}</strong>
+                                <strong style={{ fontSize: '0.9rem' }}>{store.storeName}</strong>
                                 {store.cancellationStoreName !== store.storeName && (
                                   <><br/><small className="text-muted">({store.cancellationStoreName})</small></>
                                 )}
                               </td>
                               <td style={{ verticalAlign: 'middle' }}>
                                 {store.dsrStatus === 'GOOD' ? (
-                                  <Badge bg="success" className="px-3 py-2">
+                                  <Badge bg="success" className="px-2 py-1" style={{ fontSize: '0.75rem' }}>
                                     <i className="fas fa-check-circle me-1"></i>
-                                    Good DSR
+                                    Good
                                   </Badge>
                                 ) : (
-                                  <Badge bg="danger" className="px-3 py-2">
+                                  <Badge bg="danger" className="px-2 py-1" style={{ fontSize: '0.75rem' }}>
                                     <i className="fas fa-exclamation-circle me-1"></i>
-                                    Poor DSR
+                                    Poor
                                   </Badge>
                                 )}
                                 <br/>
-                                <small className="text-muted mt-1 d-block">
-                                  {store.dsrLoss > 0 ? `Loss: ₹${store.dsrLoss.toLocaleString()}` : 'No loss'}
+                                <small className="text-muted mt-1 d-block" style={{ fontSize: '0.7rem' }}>
+                                  {store.dsrLoss > 0 ? `₹${store.dsrLoss.toLocaleString()}` : 'No loss'}
                                 </small>
                               </td>
                               <td style={{ verticalAlign: 'middle' }} className="text-center">
-                                <Badge bg="warning" text="dark" className="px-3 py-2" style={{ fontSize: '1rem' }}>
+                                {store.staffPerformance ? (
+                                  <>
+                                    <Badge 
+                                      bg={
+                                        store.staffPerformance.performanceStatus === 'CRITICAL' ? 'danger' :
+                                        store.staffPerformance.performanceStatus === 'POOR' ? 'warning' :
+                                        store.staffPerformance.performanceStatus === 'AVERAGE' ? 'info' : 'success'
+                                      }
+                                      className="px-2 py-1"
+                                      style={{ fontSize: '0.75rem' }}
+                                    >
+                                      {store.staffPerformance.performanceStatus}
+                                    </Badge>
+                                    <br/>
+                                    <small className="text-muted mt-1 d-block" style={{ fontSize: '0.7rem' }}>
+                                      {store.staffPerformance.conversionRate}%
+                                    </small>
+                                  </>
+                                ) : (
+                                  <small className="text-muted">N/A</small>
+                                )}
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }} className="text-center">
+                                <Badge bg="warning" text="dark" className="px-2 py-1" style={{ fontSize: '0.85rem' }}>
                                   {store.totalCancellations}
                                 </Badge>
                               </td>
@@ -273,7 +297,7 @@ const IntegratedAnalysis = () => {
                             
                             {/* Expandable Action Plan Row */}
                             <tr style={{ border: 'none' }}>
-                              <td colSpan="7" className="p-0" style={{ border: 'none' }}>
+                              <td colSpan="8" className="p-0" style={{ border: 'none' }}>
                                 <Collapse in={expandedRows[index]}>
                                   <div>
                                     <Card 
@@ -291,43 +315,130 @@ const IntegratedAnalysis = () => {
                                       </Card.Header>
                                       <Card.Body>
                                         <Row>
-                                          <Col md={6}>
-                                            {/* DSR Issues */}
-                                            <div className="mb-3">
-                                              <h6 className="text-primary">
-                                                <i className="fas fa-chart-line me-2"></i>
-                                                DSR Status:
-                                              </h6>
-                                              <ul className="list-unstyled ms-3">
-                                                {store.dsrIssues?.map((issue, i) => (
-                                                  <li key={i} className={`mb-2 ${store.dsrStatus === 'GOOD' ? 'text-success' : 'text-dark'}`}>
-                                                    <i className={`fas fa-${store.dsrStatus === 'GOOD' ? 'check' : 'arrow-right'} me-2`}></i>
-                                                    {issue}
-                                                  </li>
-                                                ))}
-                                              </ul>
-                                            </div>
-                                          </Col>
-                                          <Col md={6}>
-                                            {/* Cancellation Reasons */}
-                                            <div className="mb-3">
-                                              <h6 className="text-warning">
-                                                <i className="fas fa-times-circle me-2"></i>
-                                                Cancellation Problems:
-                                              </h6>
-                                              <ul className="list-unstyled ms-3">
-                                                {store.cancellationReasons?.map((reason, i) => (
-                                                  <li key={i} className="mb-2">
-                                                    <i className="fas fa-exclamation-triangle me-2 text-warning"></i>
-                                                    {reason.reason} 
-                                                    <Badge bg="secondary" className="ms-2">
-                                                      {reason.count}x ({reason.percentage}%)
-                                                    </Badge>
-                                                  </li>
-                                                ))}
-                                              </ul>
-                                            </div>
-                                          </Col>
+                          <Col md={4}>
+                            {/* DSR Issues */}
+                            <div className="mb-3">
+                              <h6 className="text-primary">
+                                <i className="fas fa-chart-line me-2"></i>
+                                DSR Status:
+                              </h6>
+                              <ul className="list-unstyled ms-3">
+                                {store.dsrIssues?.map((issue, i) => (
+                                  <li key={i} className={`mb-2 small ${store.dsrStatus === 'GOOD' ? 'text-success' : 'text-dark'}`}>
+                                    <i className={`fas fa-${store.dsrStatus === 'GOOD' ? 'check' : 'arrow-right'} me-2`}></i>
+                                    {issue}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </Col>
+                          <Col md={4}>
+                            {/* Cancellation Reasons */}
+                            <div className="mb-3">
+                              <h6 className="text-warning">
+                                <i className="fas fa-times-circle me-2"></i>
+                                Cancellation Problems:
+                              </h6>
+                              <ul className="list-unstyled ms-3">
+                                {store.cancellationReasons?.map((reason, i) => (
+                                  <li key={i} className="mb-2 small">
+                                    <i className="fas fa-exclamation-triangle me-2 text-warning"></i>
+                                    {reason.reason} 
+                                    <Badge bg="secondary" className="ms-2" style={{ fontSize: '0.7rem' }}>
+                                      {reason.count}x ({reason.percentage}%)
+                                    </Badge>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </Col>
+                          <Col md={4}>
+                            {/* Staff Performance */}
+                            <div className="mb-3">
+                              <h6 className="text-info">
+                                <i className="fas fa-users me-2"></i>
+                                Staff Performance:
+                              </h6>
+                              {store.staffPerformance ? (
+                                <div className="ms-3">
+                                  <div className="mb-2">
+                                    <Badge 
+                                      bg={
+                                        store.staffPerformance.performanceStatus === 'CRITICAL' ? 'danger' :
+                                        store.staffPerformance.performanceStatus === 'POOR' ? 'warning' :
+                                        store.staffPerformance.performanceStatus === 'AVERAGE' ? 'info' : 'success'
+                                      }
+                                      className="px-3 py-2"
+                                      style={{ fontSize: '0.85rem' }}
+                                    >
+                                      {store.staffPerformance.performanceStatus}
+                                    </Badge>
+                                  </div>
+                                  <ul className="list-unstyled small mb-2">
+                                    <li className="mb-1">
+                                      <strong>Conversion Rate:</strong>{' '}
+                                      <span className={
+                                        parseFloat(store.staffPerformance.conversionRate) < 50 ? 'text-danger fw-bold' :
+                                        parseFloat(store.staffPerformance.conversionRate) < 70 ? 'text-warning fw-bold' : 
+                                        'text-success fw-bold'
+                                      }>
+                                        {store.staffPerformance.conversionRate}%
+                                      </span>
+                                    </li>
+                                    <li className="mb-1"><strong>Walk-ins:</strong> {store.staffPerformance.walkIns}</li>
+                                    <li className="mb-1"><strong>Bills:</strong> {store.staffPerformance.bills}</li>
+                                    <li className="mb-1"><strong>Quantity:</strong> {store.staffPerformance.quantity || 'N/A'}</li>
+                                    <li className="mb-1">
+                                      <strong>Loss of Sale:</strong>{' '}
+                                      <Badge bg={store.staffPerformance.lossOfSale > 10 ? 'danger' : 'secondary'} className="px-2">
+                                        {store.staffPerformance.lossOfSale}
+                                      </Badge>
+                                    </li>
+                                    <li className="mb-1"><strong>Staff Count:</strong> {store.staffPerformance.staffCount}</li>
+                                  </ul>
+                                  
+                                  {/* Staff Issues Alert */}
+                                  {store.staffPerformance.staffIssues && store.staffPerformance.staffIssues.length > 0 && (
+                                    <div className="alert alert-warning py-2 px-2 small mb-2">
+                                      <strong>
+                                        <i className="fas fa-exclamation-triangle me-1"></i>
+                                        {store.staffPerformance.staffIssues.length} Staff Issue(s):
+                                      </strong>
+                                      <ul className="mb-0 mt-1 ps-3">
+                                        {store.staffPerformance.staffIssues.slice(0, 2).map((issue, idx) => (
+                                          <li key={idx} className="text-danger small">{issue}</li>
+                                        ))}
+                                        {store.staffPerformance.staffIssues.length > 2 && (
+                                          <li className="text-muted">+{store.staffPerformance.staffIssues.length - 2} more...</li>
+                                        )}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Root Cause Indicator */}
+                                  {parseFloat(store.staffPerformance.conversionRate) < 60 && (
+                                    <div className="alert alert-danger py-2 px-2 small mb-0">
+                                      <strong>🎯 ROOT CAUSE:</strong> Staff performance is a <strong>MAJOR CONTRIBUTOR</strong> to low DSR
+                                    </div>
+                                  )}
+                                  
+                                  {parseFloat(store.staffPerformance.conversionRate) >= 70 && store.dsrStatus === 'POOR' && (
+                                    <div className="alert alert-info py-2 px-2 small mb-0">
+                                      <strong>✅ GOOD:</strong> Staff performing well ({store.staffPerformance.conversionRate}%). 
+                                      Look at other factors (cancellations, inventory, competition).
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="alert alert-secondary py-2 px-2 small mb-0">
+                                  <i className="fas fa-info-circle me-1"></i>
+                                  <strong>No staff performance data available</strong>
+                                  <br />
+                                  <small>Check if API is working or try Staff Performance page</small>
+                                </div>
+                              )}
+                            </div>
+                          </Col>
                                         </Row>
 
                                         <hr/>
@@ -389,6 +500,98 @@ const IntegratedAnalysis = () => {
                                             <p className="mb-0 mt-2">{store.actionPlan?.expectedImpact}</p>
                                           </div>
                                         </div>
+
+                                        {/* Individual Staff Details (if available) */}
+                                        {store.staffPerformance && store.staffPerformance.staffDetails && store.staffPerformance.staffDetails.length > 0 && (
+                                          <>
+                                            <hr className="my-3"/>
+                                            <div className="bg-light p-3 rounded">
+                                              <h6 className="text-info mb-3">
+                                                <i className="fas fa-user-friends me-2"></i>
+                                                Individual Staff Performance Details
+                                              </h6>
+                                              <div className="table-responsive">
+                                                <table className="table table-sm table-hover mb-0">
+                                                  <thead className="table-light">
+                                                    <tr>
+                                                      <th>Staff Name</th>
+                                                      <th className="text-center">Walk-ins</th>
+                                                      <th className="text-center">Bills</th>
+                                                      <th className="text-center">Quantity</th>
+                                                      <th className="text-center">Conversion</th>
+                                                      <th className="text-center">Loss of Sale</th>
+                                                      <th className="text-center">Status</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {store.staffPerformance.staffDetails.map((staff, idx) => (
+                                                      <tr key={idx}>
+                                                        <td><strong>{staff.name}</strong></td>
+                                                        <td className="text-center">{staff.walkIns}</td>
+                                                        <td className="text-center">{staff.bills}</td>
+                                                        <td className="text-center">{staff.quantity || 0}</td>
+                                                        <td className="text-center">
+                                                          <Badge 
+                                                            bg={
+                                                              staff.conversionRate < 50 ? 'danger' :
+                                                              staff.conversionRate < 70 ? 'warning' : 'success'
+                                                            }
+                                                            className="px-2"
+                                                          >
+                                                            {staff.conversionRate.toFixed(1)}%
+                                                          </Badge>
+                                                        </td>
+                                                        <td className="text-center">
+                                                          <Badge bg={staff.lossOfSale > 5 ? 'danger' : 'secondary'}>
+                                                            {staff.lossOfSale}
+                                                          </Badge>
+                                                        </td>
+                                                        <td className="text-center">
+                                                          {staff.conversionRate < 50 ? (
+                                                            <span className="badge bg-danger">
+                                                              <i className="fas fa-exclamation-circle me-1"></i>
+                                                              Needs Training
+                                                            </span>
+                                                          ) : staff.conversionRate < 70 ? (
+                                                            <span className="badge bg-warning text-dark">
+                                                              <i className="fas fa-chart-line me-1"></i>
+                                                              Monitor
+                                                            </span>
+                                                          ) : (
+                                                            <span className="badge bg-success">
+                                                              <i className="fas fa-check-circle me-1"></i>
+                                                              Good
+                                                            </span>
+                                                          )}
+                                                        </td>
+                                                      </tr>
+                                                    ))}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                              
+                                              {/* Staff Performance Summary */}
+                                              <div className="mt-3 p-2 bg-white rounded border">
+                                                <small className="text-muted">
+                                                  <strong>💡 Staff Analysis:</strong>
+                                                  {(() => {
+                                                    const poorStaff = store.staffPerformance.staffDetails.filter(s => s.conversionRate < 50).length;
+                                                    const avgStaff = store.staffPerformance.staffDetails.filter(s => s.conversionRate >= 50 && s.conversionRate < 70).length;
+                                                    const goodStaff = store.staffPerformance.staffDetails.filter(s => s.conversionRate >= 70).length;
+                                                    
+                                                    if (poorStaff > 0) {
+                                                      return ` ${poorStaff} staff member(s) need immediate training. Focus on improving their conversion techniques.`;
+                                                    } else if (avgStaff > 0) {
+                                                      return ` ${avgStaff} staff member(s) performing average. Provide coaching to reach 70%+ conversion.`;
+                                                    } else {
+                                                      return ` All ${goodStaff} staff members performing well! Maintain this level.`;
+                                                    }
+                                                  })()}
+                                                </small>
+                                              </div>
+                                            </div>
+                                          </>
+                                        )}
                                       </Card.Body>
                                     </Card>
                                   </div>

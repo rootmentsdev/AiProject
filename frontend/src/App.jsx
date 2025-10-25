@@ -4,6 +4,7 @@ import DSRAnalysisDashboard from './components/DSRAnalysisDashboard';
 import AIInsights from './components/AIInsights';
 import CancellationDataView from './components/CancellationDataView';
 import IntegratedAnalysis from './components/IntegratedAnalysis';
+import StaffPerformanceView from './components/StaffPerformanceView';
 import './App.css';
 
 function App() {
@@ -110,6 +111,12 @@ function App() {
                     <Nav.Link eventKey="cancellation" className="border-0">
                       <i className="fas fa-times-circle me-2"></i>
                       Cancellation Data
+                    </Nav.Link>
+                  </Nav.Item>
+                  <Nav.Item>
+                    <Nav.Link eventKey="staff" className="border-0">
+                      <i className="fas fa-users me-2"></i>
+                      Staff Performance
                     </Nav.Link>
                   </Nav.Item>
                   <Nav.Item>
@@ -247,6 +254,11 @@ function App() {
             {/* Cancellation Data Tab */}
             <Tab.Pane eventKey="cancellation">
               <CancellationDataView />
+            </Tab.Pane>
+
+            {/* Staff Performance Tab */}
+            <Tab.Pane eventKey="staff">
+              <StaffPerformanceView />
             </Tab.Pane>
 
             {/* Integrated Analysis Tab */}

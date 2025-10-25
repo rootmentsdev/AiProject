@@ -149,13 +149,44 @@ class DSRController {
         "7777"
       );
       
-      // Step 3: Compare and Match Stores
-      console.log("📊 Step 3: Matching and comparing stores...");
-      const comparisonResult = this.compareStores(dsrAnalysis, cancellationResult);
+      // Step 3: Get Staff Performance Data
+      console.log("📊 Step 3: Fetching staff performance data...");
+      const staffPerformanceService = require('../services/staffPerformanceService');
       
-      // Step 4: Generate AI-Powered CEO Action Plans
-      console.log("\n🤖 Step 4: Generating AI-powered action plans...");
-      const actionPlans = await this.generateCEOActionPlans(comparisonResult, cancellationResult);
+      let staffPerformanceResult = null;
+      try {
+        staffPerformanceResult = await staffPerformanceService.getStaffPerformanceAnalysis(
+          cancellationDateRange.DateFrom,
+          cancellationDateRange.DateTo,
+          "0", // All locations
+          "7777"
+        );
+        
+        if (staffPerformanceResult && staffPerformanceResult.success) {
+          console.log("✅ Staff performance data fetched successfully");
+          const storeCount = Object.keys(staffPerformanceResult.analysis?.storeWisePerformance || {}).length;
+          console.log(`📊 Staff performance data available for ${storeCount} stores`);
+        } else {
+          console.log("⚠️ Staff performance data not available or failed");
+          console.log("⚠️ Continuing analysis without staff performance data");
+        }
+      } catch (staffError) {
+        console.error("❌ Staff performance fetch failed:", staffError.message);
+        console.log("⚠️ Continuing analysis without staff performance data");
+        staffPerformanceResult = { success: false, analysis: { storeWisePerformance: {} } };
+      }
+      
+      // Step 4: Compare and Match Stores (DSR, Cancellation, Staff Performance)
+      console.log("📊 Step 4: Matching and comparing stores with all data sources...");
+      const comparisonResult = this.compareStores(dsrAnalysis, cancellationResult, staffPerformanceResult);
+      
+      // Step 5: Generate AI-Powered CEO Action Plans
+      console.log("\n🤖 Step 5: Generating AI-powered action plans...");
+      const actionPlans = await this.generateCEOActionPlans(
+        comparisonResult, 
+        cancellationResult,
+        staffPerformanceResult
+      );
       
       console.log('\n✅ INTEGRATED ANALYSIS COMPLETED SUCCESSFULLY!');
       console.log('📊 Sending response to frontend...\n');
@@ -207,8 +238,8 @@ class DSRController {
     return false;
   }
 
-  // Compare stores from DSR and cancellation data
-  compareStores(dsrAnalysis, cancellationResult) {
+  // Compare stores from DSR, cancellation data, and staff performance
+  compareStores(dsrAnalysis, cancellationResult, staffPerformanceResult) {
     const criticalStores = [];
     const dsrOnlyStores = [];
     const cancellationOnlyStores = [];
@@ -216,21 +247,34 @@ class DSRController {
     // Handle both field names: problemStores (old) and badPerformingStores (new)
     const dsrStores = dsrAnalysis.problemStores || dsrAnalysis.badPerformingStores || [];
     const cancellationStores = cancellationResult?.analysis?.storeWiseProblems || {};
+    const staffPerformanceStores = staffPerformanceResult?.analysis?.storeWisePerformance || {};
     
-    console.log(`\n🔍 Comparing ${dsrStores.length} DSR problem stores with ${Object.keys(cancellationStores).length} cancellation stores...`);
+    console.log(`\n🔍 Comparing ${dsrStores.length} DSR problem stores with ${Object.keys(cancellationStores).length} cancellation stores and ${Object.keys(staffPerformanceStores).length} staff performance stores...`);
     
-    // Find stores with BOTH DSR problems AND cancellations
+    // Find stores with DSR problems and match with cancellation & staff performance data
     dsrStores.forEach(dsrStore => {
       const storeName = dsrStore.storeName || dsrStore.name;
       let matchedCancellationStore = null;
-      let matchedStoreName = null;
+      let matchedCancellationStoreName = null;
+      let matchedStaffPerformanceStore = null;
+      let matchedStaffPerformanceStoreName = null;
       
       // Try to find matching cancellation store
       for (const [cancelStore, cancelData] of Object.entries(cancellationStores)) {
         if (this.fuzzyMatchStore(storeName, cancelStore)) {
           matchedCancellationStore = cancelData;
-          matchedStoreName = cancelStore;
-          console.log(`✓ MATCH: "${storeName}" → "${cancelStore}"`);
+          matchedCancellationStoreName = cancelStore;
+          console.log(`✓ CANCELLATION MATCH: "${storeName}" → "${cancelStore}"`);
+          break;
+        }
+      }
+      
+      // Try to find matching staff performance store
+      for (const [staffStore, staffData] of Object.entries(staffPerformanceStores)) {
+        if (this.fuzzyMatchStore(storeName, staffStore)) {
+          matchedStaffPerformanceStore = staffData;
+          matchedStaffPerformanceStoreName = staffStore;
+          console.log(`✓ STAFF PERFORMANCE MATCH: "${storeName}" → "${staffStore}"`);
           break;
         }
       }
@@ -239,13 +283,18 @@ class DSRController {
         // Store has BOTH problems - CRITICAL!
         criticalStores.push({
           storeName: storeName,
-          cancellationStoreName: matchedStoreName,
+          cancellationStoreName: matchedCancellationStoreName,
+          staffPerformanceStoreName: matchedStaffPerformanceStoreName,
           dsrData: dsrStore,
-          cancellationData: matchedCancellationStore
+          cancellationData: matchedCancellationStore,
+          staffPerformanceData: matchedStaffPerformanceStore || null
         });
       } else {
         // Store has only DSR problems
-        dsrOnlyStores.push(dsrStore);
+        dsrOnlyStores.push({
+          ...dsrStore,
+          staffPerformanceData: matchedStaffPerformanceStore || null
+        });
       }
     });
     
@@ -253,9 +302,19 @@ class DSRController {
     Object.entries(cancellationStores).forEach(([cancelStore, cancelData]) => {
       const alreadyMatched = criticalStores.some(cs => cs.cancellationStoreName === cancelStore);
       if (!alreadyMatched && cancelData.totalCancellations > 0) {
+        // Try to find staff performance for this store
+        let matchedStaffPerformanceStore = null;
+        for (const [staffStore, staffData] of Object.entries(staffPerformanceStores)) {
+          if (this.fuzzyMatchStore(cancelStore, staffStore)) {
+            matchedStaffPerformanceStore = staffData;
+            break;
+          }
+        }
+        
         cancellationOnlyStores.push({
           storeName: cancelStore,
-          cancellationData: cancelData
+          cancellationData: cancelData,
+          staffPerformanceData: matchedStaffPerformanceStore || null
         });
       }
     });
@@ -272,15 +331,16 @@ class DSRController {
       summary: {
         totalDSRStores: dsrStores.length,
         totalCancellationStores: Object.keys(cancellationStores).length,
+        totalStaffPerformanceStores: Object.keys(staffPerformanceStores).length,
         criticalCount: criticalStores.length
       }
     };
   }
 
   // Generate AI-powered action plans for each store
-  async generateAIActionPlan(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData = null) {
+  async generateAIActionPlan(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData = null, staffPerformanceData = null) {
     try {
-      const prompt = this.buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData);
+      const prompt = this.buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData, staffPerformanceData);
       
       const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
         model: 'llama-3.3-70b-versatile',
@@ -336,8 +396,8 @@ class DSRController {
     }
   }
 
-  // Build AI prompt for action plan with detailed DSR and cancellation data
-  buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData) {
+  // Build AI prompt for action plan with detailed DSR, cancellation, and staff performance data
+  buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData, staffPerformanceData) {
     console.log(`\n${'─'.repeat(80)}`);
     console.log(`📝 BUILDING DETAILED AI PROMPT FOR: ${storeName}`);
     console.log(`${'─'.repeat(80)}`);
@@ -374,6 +434,45 @@ class DSRController {
         prompt += `      • Impact: ${reason.count > 2 ? 'HIGH' : reason.count > 1 ? 'MEDIUM' : 'LOW'}\n`;
       });
       
+      // Add staff performance data if available
+      if (staffPerformanceData) {
+        prompt += `\n👥 STAFF PERFORMANCE ANALYSIS:\n`;
+        prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        prompt += `• Store Conversion Rate: ${staffPerformanceData.conversionRate}%\n`;
+        prompt += `• Performance Status: ${staffPerformanceData.performanceStatus}\n`;
+        prompt += `• Walk-ins: ${staffPerformanceData.walkIns}\n`;
+        prompt += `• Bills: ${staffPerformanceData.bills}\n`;
+        prompt += `• Quantity: ${staffPerformanceData.quantity}\n`;
+        prompt += `• Loss of Sale: ${staffPerformanceData.lossOfSale}\n`;
+        prompt += `• Staff Count: ${staffPerformanceData.staffCount}\n`;
+        
+        if (staffPerformanceData.staffIssues && staffPerformanceData.staffIssues.length > 0) {
+          prompt += `\n⚠️ Identified Staff Issues:\n`;
+          staffPerformanceData.staffIssues.forEach((issue, i) => {
+            prompt += `   ${i + 1}. ${issue}\n`;
+          });
+        }
+        
+        if (staffPerformanceData.staffDetails && staffPerformanceData.staffDetails.length > 0) {
+          prompt += `\n👤 Individual Staff Performance:\n`;
+          staffPerformanceData.staffDetails.forEach((staff, i) => {
+            prompt += `   ${i + 1}. ${staff.name}\n`;
+            prompt += `      • Conversion: ${staff.conversionRate}%\n`;
+            prompt += `      • Walk-ins: ${staff.walkIns} | Bills: ${staff.bills}\n`;
+            prompt += `      • Loss of Sale: ${staff.lossOfSale}\n`;
+          });
+        }
+        
+        prompt += `\n🔍 ROOT CAUSE ANALYSIS:\n`;
+        if (parseFloat(staffPerformanceData.conversionRate) < 60) {
+          prompt += `⚠️ STAFF PERFORMANCE is a MAJOR CONTRIBUTOR to low DSR performance.\n`;
+          prompt += `The store's ${staffPerformanceData.conversionRate}% conversion rate indicates staff training/motivation issues.\n`;
+        } else {
+          prompt += `Staff performance is acceptable (${staffPerformanceData.conversionRate}%).\n`;
+          prompt += `Low DSR performance likely caused by other factors (inventory, pricing, competition).\n`;
+        }
+      }
+      
     } else if (problemType === 'CANCELLATION_ONLY') {
       prompt += `✅ DSR Performance: GOOD (Sales targets being met)\n`;
       prompt += `⚠️ Issue: High Cancellations Despite Good Sales Performance\n\n`;
@@ -388,6 +487,15 @@ class DSRController {
         prompt += `      • Frequency: ${reason.count} times (${reason.percentage}%)\n`;
         prompt += `      • Impact: ${reason.count > 2 ? 'HIGH' : reason.count > 1 ? 'MEDIUM' : 'LOW'}\n`;
       });
+      
+      // Add staff performance for cancellation-only stores
+      if (staffPerformanceData) {
+        prompt += `\n👥 STAFF PERFORMANCE ANALYSIS:\n`;
+        prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        prompt += `• Store Conversion Rate: ${staffPerformanceData.conversionRate}%\n`;
+        prompt += `• Performance Status: ${staffPerformanceData.performanceStatus}\n`;
+        prompt += `Staff performance is good, but cancellations are affecting customer retention.\n`;
+      }
     }
     
     prompt += `\n🎯 YOUR DETAILED CEO-LEVEL TASK:\n`;
@@ -495,7 +603,7 @@ class DSRController {
   }
 
   // Generate CEO-level action plans
-  async generateCEOActionPlans(comparisonResult, cancellationResult) {
+  async generateCEOActionPlans(comparisonResult, cancellationResult, staffPerformanceResult) {
     const { criticalStores, dsrOnlyStores, cancellationOnlyStores } = comparisonResult;
     
     // Process ALL stores with cancellations (critical + cancellation-only)
@@ -513,6 +621,7 @@ class DSRController {
     for (const store of criticalStores) {
       const dsrData = store.dsrData;
       const cancelData = store.cancellationData;
+      const staffPerfData = store.staffPerformanceData;
       
       const dsrIssues = dsrData.rootCauses || dsrData.issues || [dsrData.whyBadPerforming || 'Performance issues'];
       const dsrLoss = dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0;
@@ -526,6 +635,9 @@ class DSRController {
       console.log(`   Cancellations: ${cancelData.totalCancellations}`);
       console.log(`   DSR Issues: ${dsrIssues.join(', ')}`);
       console.log(`   Top Cancel Reasons: ${topCancellationReasons.map(r => r.reason).join(', ')}`);
+      if (staffPerfData) {
+        console.log(`   Staff Performance: ${staffPerfData.conversionRate}% (${staffPerfData.performanceStatus})`);
+      }
       
       const actionPlan = await this.generateAIActionPlan(
         store.storeName,
@@ -534,7 +646,8 @@ class DSRController {
         dsrLoss,
         cancelData.totalCancellations,
         'BOTH', // Has both problems
-        dsrData // Pass full DSR data for detailed analysis
+        dsrData, // Pass full DSR data for detailed analysis
+        staffPerfData // Pass staff performance data
       );
       
       console.log(`✅ Action plan generated for ${store.storeName}\n`);
@@ -561,6 +674,16 @@ class DSRController {
           lossOfSale: dsrData.lossOfSale || 'N/A',
           absValue: dsrData.absValue || 'N/A'
         },
+        // Staff Performance metrics
+        staffPerformance: staffPerfData ? {
+          conversionRate: staffPerfData.conversionRate || 'N/A',
+          performanceStatus: staffPerfData.performanceStatus || 'N/A',
+          walkIns: staffPerfData.walkIns || 0,
+          bills: staffPerfData.bills || 0,
+          lossOfSale: staffPerfData.lossOfSale || 0,
+          staffCount: staffPerfData.staffCount || 0,
+          staffIssues: staffPerfData.staffIssues || []
+        } : null,
         totalCancellations: cancelData.totalCancellations,
         cancellationReasons: topCancellationReasons.slice(0, 3),
         actionPlan,
@@ -571,6 +694,7 @@ class DSRController {
     // 2. Process cancellation-only stores (good DSR, but has cancellations) - WITH AI
     for (const store of cancellationOnlyStores) {
       const cancelData = store.cancellationData;
+      const staffPerfData = store.staffPerformanceData;
       const topCancellationReasons = cancelData.topReasons || [];
       
       const severity = cancelData.totalCancellations > 5 ? 'HIGH' : 
@@ -580,6 +704,9 @@ class DSRController {
       console.log(`   DSR Status: GOOD (Meeting targets)`);
       console.log(`   Cancellations: ${cancelData.totalCancellations}`);
       console.log(`   Top Cancel Reasons: ${topCancellationReasons.map(r => r.reason).join(', ')}`);
+      if (staffPerfData) {
+        console.log(`   Staff Performance: ${staffPerfData.conversionRate}% (${staffPerfData.performanceStatus})`);
+      }
       
       // Generate AI action plan for cancellation-only stores too!
       const actionPlan = await this.generateAIActionPlan(
@@ -589,7 +716,8 @@ class DSRController {
         0, // No DSR loss
         cancelData.totalCancellations,
         'CANCELLATION_ONLY', // Only cancellation problems
-        null // No DSR data
+        null, // No DSR data
+        staffPerfData // Pass staff performance data
       );
       
       console.log(`✅ AI action plan generated for ${store.storeName} (Good DSR)\n`);
@@ -615,6 +743,16 @@ class DSRController {
           lossOfSale: 'Minimal',
           absValue: 'N/A'
         },
+        // Staff Performance metrics
+        staffPerformance: staffPerfData ? {
+          conversionRate: staffPerfData.conversionRate || 'N/A',
+          performanceStatus: staffPerfData.performanceStatus || 'N/A',
+          walkIns: staffPerfData.walkIns || 0,
+          bills: staffPerfData.bills || 0,
+          lossOfSale: staffPerfData.lossOfSale || 0,
+          staffCount: staffPerfData.staffCount || 0,
+          staffIssues: staffPerfData.staffIssues || []
+        } : null,
         totalCancellations: cancelData.totalCancellations,
         cancellationReasons: topCancellationReasons.slice(0, 3),
         actionPlan,
