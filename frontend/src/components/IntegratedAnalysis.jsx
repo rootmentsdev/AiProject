@@ -214,7 +214,7 @@ const IntegratedAnalysis = () => {
 
           {/* Executive Summary */}
           <Row className="mb-4">
-            <Col md={3}>
+            <Col md={4}>
               <Card className="h-100 border-0 shadow-sm" style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', color: 'white' }}>
                 <Card.Body className="text-center">
                   <h4>{analysisData.summary?.criticalStores || 0}</h4>
@@ -223,16 +223,7 @@ const IntegratedAnalysis = () => {
                 </Card.Body>
               </Card>
             </Col>
-            <Col md={3}>
-              <Card className="h-100 border-0 shadow-sm" style={{ background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', color: 'white' }}>
-                <Card.Body className="text-center">
-                  <h4>₹{analysisData.summary?.totalLoss?.toLocaleString() || 0}</h4>
-                  <small>Total Estimated Loss</small>
-                  <p className="small mb-0 mt-2 opacity-75">Revenue + Opportunity Loss</p>
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col md={3}>
+            <Col md={4}>
               <Card className="h-100 border-0 shadow-sm" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
                 <Card.Body className="text-center">
                   <h4>{analysisData.summary?.totalCancellations || 0}</h4>
@@ -241,7 +232,7 @@ const IntegratedAnalysis = () => {
                 </Card.Body>
               </Card>
             </Col>
-            <Col md={3}>
+            <Col md={4}>
               <Card className="h-100 border-0 shadow-sm" style={{ background: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', color: 'white' }}>
                 <Card.Body className="text-center">
                   <h4>₹{analysisData.summary?.estimatedRecovery?.toLocaleString() || 0}</h4>
@@ -349,7 +340,7 @@ const IntegratedAnalysis = () => {
                                       style={{ fontSize: '0.75rem' }}
                                     >
                                       {store.staffPerformance.performanceStatus}
-                                    </Badge>
+                                  </Badge>
                                     <br/>
                                     <small className="text-muted mt-1 d-block" style={{ fontSize: '0.7rem' }}>
                                       {store.staffPerformance.conversionRate}%
@@ -375,8 +366,8 @@ const IntegratedAnalysis = () => {
                                     <span className="text-success">✓ No cancellations</span>
                                   ) : (
                                     <>
-                                      {store.cancellationReasons[0]?.reason.substring(0, 50) || 'N/A'}
-                                      {store.cancellationReasons[0]?.reason.length > 50 && '...'}
+                                  {store.cancellationReasons[0]?.reason.substring(0, 50) || 'N/A'}
+                                  {store.cancellationReasons[0]?.reason.length > 50 && '...'}
                                     </>
                                   )}
                                 </small>
@@ -504,13 +495,13 @@ const IntegratedAnalysis = () => {
                                         {/* 📋 DETAILED DATA IN TABS */}
                                         <Row>
                           <Col md={4}>
-                            {/* DSR Issues */}
-                            <div className="mb-3">
-                              <h6 className="text-primary">
-                                <i className="fas fa-chart-line me-2"></i>
+                                            {/* DSR Issues */}
+                                            <div className="mb-3">
+                                              <h6 className="text-primary">
+                                                <i className="fas fa-chart-line me-2"></i>
                                 DSR Performance Issues:
-                              </h6>
-                              <ul className="list-unstyled ms-3">
+                                              </h6>
+                                              <ul className="list-unstyled ms-3">
                                 <li className="mb-2 small">
                                   <i className="fas fa-percentage me-2 text-primary"></i>
                                   <strong>Conversion:</strong> {store.dsrMetrics?.conversionRate}%
@@ -533,23 +524,19 @@ const IntegratedAnalysis = () => {
                                   )}
                                 </li>
                                 <li className="mb-2 small">
-                                  <i className="fas fa-walking me-2 text-primary"></i>
-                                  <strong>Walk-ins:</strong> {store.dsrMetrics?.walkIns}
-                                </li>
-                                <li className="mb-2 small">
                                   <i className="fas fa-times-circle me-2 text-danger"></i>
                                   <strong>Loss of Sale:</strong> {store.dsrMetrics?.lossOfSale}
-                                </li>
-                              </ul>
-                            </div>
-                          </Col>
+                                                  </li>
+                                              </ul>
+                                            </div>
+                                          </Col>
                           <Col md={4}>
-                            {/* Cancellation Reasons */}
-                            <div className="mb-3">
+                                            {/* Cancellation Reasons */}
+                                            <div className="mb-3">
                               <h6 className={store.totalCancellations === 0 ? 'text-success' : 'text-warning'}>
                                 <i className={`fas fa-${store.totalCancellations === 0 ? 'check-circle' : 'times-circle'} me-2`}></i>
                                 {store.totalCancellations === 0 ? 'Cancellation Status:' : 'Cancellation Problems:'}
-                              </h6>
+                                              </h6>
                               {store.totalCancellations === 0 ? (
                                 <div className="alert alert-success py-2 px-3 small mb-0">
                                   <i className="fas fa-check-circle me-2"></i>
@@ -558,17 +545,17 @@ const IntegratedAnalysis = () => {
                                   Customer retention is good. Focus on improving sales performance.
                                 </div>
                               ) : (
-                                <ul className="list-unstyled ms-3">
-                                  {store.cancellationReasons?.map((reason, i) => (
+                                              <ul className="list-unstyled ms-3">
+                                                {store.cancellationReasons?.map((reason, i) => (
                                     <li key={i} className="mb-2 small">
-                                      <i className="fas fa-exclamation-triangle me-2 text-warning"></i>
-                                      {reason.reason} 
+                                                    <i className="fas fa-exclamation-triangle me-2 text-warning"></i>
+                                                    {reason.reason} 
                                       <Badge bg="secondary" className="ms-2" style={{ fontSize: '0.7rem' }}>
-                                        {reason.count}x ({reason.percentage}%)
-                                      </Badge>
-                                    </li>
-                                  ))}
-                                </ul>
+                                                      {reason.count}x ({reason.percentage}%)
+                                                    </Badge>
+                                                  </li>
+                                                ))}
+                                              </ul>
                               )}
                             </div>
                           </Col>
@@ -605,7 +592,6 @@ const IntegratedAnalysis = () => {
                                         {store.staffPerformance.conversionRate}%
                                       </span>
                                     </li>
-                                    <li className="mb-1"><strong>Walk-ins:</strong> {store.staffPerformance.walkIns}</li>
                                     <li className="mb-1"><strong>Bills:</strong> {store.staffPerformance.bills}</li>
                                     <li className="mb-1"><strong>Quantity:</strong> {store.staffPerformance.quantity || 'N/A'}</li>
                                     <li className="mb-1">
@@ -643,8 +629,8 @@ const IntegratedAnalysis = () => {
                                   <small>Check if API is working or try Staff Performance page</small>
                                 </div>
                               )}
-                            </div>
-                          </Col>
+                                            </div>
+                                          </Col>
                                         </Row>
 
                                         <hr className="my-4"/>
@@ -662,11 +648,11 @@ const IntegratedAnalysis = () => {
                                                   <li key={i} className="mb-3">
                                                     <strong>{action}</strong>
                                                   </li>
-                                                ))}
-                                              </ol>
+                                                  ))}
+                                                </ol>
                                             </Card.Body>
                                           </Card>
-                                        </div>
+                                              </div>
 
                                         {/* Individual Staff Details (if available) */}
                                         {store.staffPerformance && store.staffPerformance.staffDetails && store.staffPerformance.staffDetails.length > 0 && (
@@ -682,7 +668,6 @@ const IntegratedAnalysis = () => {
                                                   <thead className="table-light">
                                                     <tr>
                                                       <th>Staff Name</th>
-                                                      <th className="text-center">Walk-ins</th>
                                                       <th className="text-center">Bills</th>
                                                       <th className="text-center">Quantity</th>
                                                       <th className="text-center">Conversion</th>
@@ -694,7 +679,6 @@ const IntegratedAnalysis = () => {
                                                     {store.staffPerformance.staffDetails.map((staff, idx) => (
                                                       <tr key={idx}>
                                                         <td><strong>{staff.name}</strong></td>
-                                                        <td className="text-center">{staff.walkIns}</td>
                                                         <td className="text-center">{staff.bills}</td>
                                                         <td className="text-center">{staff.quantity || 0}</td>
                                                         <td className="text-center">
@@ -756,7 +740,7 @@ const IntegratedAnalysis = () => {
                                                   })()}
                                                 </small>
                                               </div>
-                                            </div>
+                                          </div>
                                           </>
                                         )}
                                       </Card.Body>

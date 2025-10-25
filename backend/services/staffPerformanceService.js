@@ -177,7 +177,6 @@ class StaffPerformanceService {
             totalRecords: 0,
             storeWisePerformance: {},
             overallMetrics: {
-              totalWalkIns: 0,
               totalBills: 0,
               totalQuantity: 0,
               totalLossOfSale: 0,
@@ -192,7 +191,6 @@ class StaffPerformanceService {
         totalRecords: staffPerformanceData.length,
         storeWisePerformance: {}, // Track performance by store
         overallMetrics: {
-          totalWalkIns: 0,
           totalBills: 0,
           totalQuantity: 0,
           totalLossOfSale: 0,
@@ -244,22 +242,19 @@ class StaffPerformanceService {
         const value = parseFloat(record.createdValue || record.totalValue || 
                                 record.value || record.Value || 0);
         
-        // Calculate walk-ins (if not provided, estimate from bills)
-        const walkIns = parseFloat(record.walkIns || record.WalkIns || 
-                                   record.total_walkins || (bills > 0 ? bills * 1.5 : 0));
-        
         // Loss of sale (canceled bills)
         const lossOfSale = parseFloat(record.canceled_Number_Of_Bill || record.lossOfSale || 
                                      record.LossOfSale || 0);
         
-        const conversionRate = walkIns > 0 ? ((bills / walkIns) * 100).toFixed(2) : 
-                              (bills > 0 ? 100 : 0); // If no walk-ins but has bills, assume 100%
+        // Calculate conversion rate based on bills vs (bills + lossOfSale)
+        const totalAttempts = bills + lossOfSale;
+        const conversionRate = totalAttempts > 0 ? ((bills / totalAttempts) * 100).toFixed(2) : 
+                              (bills > 0 ? 100 : 0);
 
         // Initialize store data if not exists
         if (!analysis.storeWisePerformance[location]) {
           analysis.storeWisePerformance[location] = {
             storeName: location,
-            walkIns: 0,
             bills: 0,
             quantity: 0,
             lossOfSale: 0,
@@ -270,7 +265,6 @@ class StaffPerformanceService {
         }
 
         // Aggregate store metrics
-        analysis.storeWisePerformance[location].walkIns += walkIns;
         analysis.storeWisePerformance[location].bills += bills;
         analysis.storeWisePerformance[location].quantity += quantity;
         analysis.storeWisePerformance[location].lossOfSale += lossOfSale;
@@ -279,7 +273,6 @@ class StaffPerformanceService {
         // Add staff details
         analysis.storeWisePerformance[location].staffDetails.push({
           name: staffName,
-          walkIns,
           bills,
           quantity,
           lossOfSale,
@@ -288,7 +281,6 @@ class StaffPerformanceService {
         });
 
         // Update overall metrics
-        analysis.overallMetrics.totalWalkIns += walkIns;
         analysis.overallMetrics.totalBills += bills;
         analysis.overallMetrics.totalQuantity += quantity;
         analysis.overallMetrics.totalLossOfSale += lossOfSale;
@@ -297,8 +289,9 @@ class StaffPerformanceService {
       // Calculate store-level conversion rates and identify poor performers
       Object.keys(analysis.storeWisePerformance).forEach(storeName => {
         const storeData = analysis.storeWisePerformance[storeName];
-        storeData.conversionRate = storeData.walkIns > 0 
-          ? ((storeData.bills / storeData.walkIns) * 100).toFixed(2) 
+        const totalAttempts = storeData.bills + storeData.lossOfSale;
+        storeData.conversionRate = totalAttempts > 0 
+          ? ((storeData.bills / totalAttempts) * 100).toFixed(2) 
           : 0;
         
         // Determine performance status
@@ -326,9 +319,10 @@ class StaffPerformanceService {
       });
 
       // Calculate overall conversion rate
-      if (analysis.overallMetrics.totalWalkIns > 0) {
+      const totalAttempts = analysis.overallMetrics.totalBills + analysis.overallMetrics.totalLossOfSale;
+      if (totalAttempts > 0) {
         analysis.overallMetrics.averageConversionRate = (
-          (analysis.overallMetrics.totalBills / analysis.overallMetrics.totalWalkIns) * 100
+          (analysis.overallMetrics.totalBills / totalAttempts) * 100
         ).toFixed(2);
       }
 
@@ -357,7 +351,7 @@ class StaffPerformanceService {
           console.log(`${index + 1}. ${perfIcon} ${store.storeName}`);
           console.log(`   Status: ${store.performanceStatus}`);
           console.log(`   Conversion Rate: ${store.conversionRate}%`);
-          console.log(`   Walk-ins: ${store.walkIns} | Bills: ${store.bills} | Quantity: ${store.quantity}`);
+          console.log(`   Bills: ${store.bills} | Quantity: ${store.quantity}`);
           console.log(`   Loss of Sale: ${store.lossOfSale}`);
           console.log(`   Staff Count: ${store.staffCount}`);
           

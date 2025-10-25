@@ -134,8 +134,58 @@ function getCancellationDateRange(dsrDate, daysBefore = 0, daysAfter = 0) {
   }
 }
 
+/**
+ * Convert multiple DSR dates to a combined date range
+ * Useful when fetching data for multiple clusters with different dates
+ * @param {string[]} dsrDates - Array of dates (e.g., ["12/8/2025", "21/8/2025"])
+ * @returns {Object} Object with DateFrom (earliest) and DateTo (latest)
+ */
+function convertMultipleDatesToRange(dsrDates) {
+  if (!dsrDates || dsrDates.length === 0) {
+    console.log("⚠️ No dates provided, using default range");
+    const defaultDate = "2025-8-21";
+    return { DateFrom: defaultDate, DateTo: defaultDate };
+  }
+
+  try {
+    // Convert all dates to API format
+    const apiDates = dsrDates
+      .filter(date => date) // Remove null/undefined
+      .map(date => convertDSRDateToAPIDate(date));
+    
+    if (apiDates.length === 0) {
+      throw new Error("No valid dates found");
+    }
+
+    // Parse dates to find earliest and latest
+    const parsedDates = apiDates.map(dateStr => {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      return { dateStr, dateObj: new Date(year, month - 1, day) };
+    });
+
+    // Sort by date
+    parsedDates.sort((a, b) => a.dateObj - b.dateObj);
+
+    const earliestDate = parsedDates[0].dateStr;
+    const latestDate = parsedDates[parsedDates.length - 1].dateStr;
+
+    console.log(`📅 Combined date range: ${earliestDate} to ${latestDate}`);
+    
+    return {
+      DateFrom: earliestDate,
+      DateTo: latestDate
+    };
+
+  } catch (error) {
+    console.error("❌ Error creating date range:", error.message);
+    const fallbackDate = "2025-8-21";
+    return { DateFrom: fallbackDate, DateTo: fallbackDate };
+  }
+}
+
 module.exports = {
   convertDSRDateToAPIDate,
   convertDSRDateToDateRange,
-  getCancellationDateRange
+  getCancellationDateRange,
+  convertMultipleDatesToRange
 };

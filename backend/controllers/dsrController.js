@@ -137,9 +137,28 @@ class DSRController {
       
       // Step 2: Get Cancellation Data
       console.log("📊 Step 2: Fetching cancellation data...");
-      const { convertDSRDateToDateRange } = require('../utils/dateConverter');
-      const dsrSheetDate = dsrDataResult.date || "12/8/2025";
-      const cancellationDateRange = convertDSRDateToDateRange(dsrSheetDate);
+      const { convertMultipleDatesToRange } = require('../utils/dateConverter');
+      
+      // If we have different dates for South and North clusters, fetch cancellations for BOTH
+      let cancellationDateRange;
+      if (dsrDataResult.southDate && dsrDataResult.northDate) {
+        console.log(`📅 South Cluster Date: ${dsrDataResult.southDate}`);
+        console.log(`📅 North Cluster Date: ${dsrDataResult.northDate}`);
+        
+        // Create a date range covering both cluster dates
+        cancellationDateRange = convertMultipleDatesToRange([
+          dsrDataResult.southDate,
+          dsrDataResult.northDate
+        ]);
+        
+        console.log(`📅 Fetching cancellations for date range: ${cancellationDateRange.DateFrom} to ${cancellationDateRange.DateTo}`);
+      } else {
+        // Fallback to single date
+        const { convertDSRDateToDateRange } = require('../utils/dateConverter');
+        const dsrSheetDate = dsrDataResult.date || "21/8/2025";
+        cancellationDateRange = convertDSRDateToDateRange(dsrSheetDate);
+        console.log(`📅 Fetching cancellations for: ${cancellationDateRange.DateFrom}`);
+      }
       
       const cancellationService = require('../services/cancellationService');
       const cancellationResult = await cancellationService.getCancellationAnalysis(
@@ -153,6 +172,14 @@ class DSRController {
       console.log("📊 Step 3: Fetching staff performance data...");
       const staffPerformanceService = require('../services/staffPerformanceService');
       const { getLocationIDFromStoreName } = require('../config/storeLocationMapping');
+      
+      // Use the MOST RECENT DSR date for staff performance (North Cluster date: 21/8/2025)
+      // This ensures staff data matches the DSR date being analyzed
+      const staffPerformanceDate = dsrDataResult.date; // This is the most recent date (North: 21/8/2025)
+      const staffPerformanceDateRange = require('../utils/dateConverter').convertDSRDateToDateRange(staffPerformanceDate);
+      
+      console.log(`📅 Using DSR date for staff performance: ${staffPerformanceDate}`);
+      console.log(`📅 Staff performance date range: ${staffPerformanceDateRange.DateFrom} to ${staffPerformanceDateRange.DateTo}`);
       
       let staffPerformanceResult = { success: true, analysis: { storeWisePerformance: {} } };
       
@@ -178,8 +205,8 @@ class DSRController {
             
             try {
               const storeStaffData = await staffPerformanceService.getStaffPerformanceAnalysis(
-                cancellationDateRange.DateFrom,
-                cancellationDateRange.DateTo,
+                staffPerformanceDateRange.DateFrom,
+                staffPerformanceDateRange.DateTo,
                 locationID,
                 "7777"
               );
@@ -509,7 +536,6 @@ class DSRController {
         prompt += `• Conversion Rate: ${dsrData.conversionRate || 'N/A'}\n`;
         prompt += `• Bills Performance: ${dsrData.billsPerformance || 'N/A'}\n`;
         prompt += `• Quantity Performance: ${dsrData.quantityPerformance || 'N/A'}\n`;
-        prompt += `• Walk-ins: ${dsrData.walkIns || 'N/A'}\n`;
         prompt += `• Loss of Sale: ${dsrData.lossOfSale || 'N/A'}\n`;
         prompt += `• ABS Value: ₹${dsrData.absValue || 'N/A'}\n`;
       }
@@ -536,7 +562,6 @@ class DSRController {
         prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         prompt += `• Store Conversion Rate: ${staffPerformanceData.conversionRate}%\n`;
         prompt += `• Performance Status: ${staffPerformanceData.performanceStatus}\n`;
-        prompt += `• Walk-ins: ${staffPerformanceData.walkIns}\n`;
         prompt += `• Bills: ${staffPerformanceData.bills}\n`;
         prompt += `• Quantity: ${staffPerformanceData.quantity}\n`;
         prompt += `• Loss of Sale: ${staffPerformanceData.lossOfSale}\n`;
@@ -554,7 +579,7 @@ class DSRController {
           staffPerformanceData.staffDetails.forEach((staff, i) => {
             prompt += `   ${i + 1}. ${staff.name}\n`;
             prompt += `      • Conversion: ${staff.conversionRate}%\n`;
-            prompt += `      • Walk-ins: ${staff.walkIns} | Bills: ${staff.bills}\n`;
+            prompt += `      • Bills: ${staff.bills}\n`;
             prompt += `      • Loss of Sale: ${staff.lossOfSale}\n`;
           });
         }
@@ -626,7 +651,6 @@ class DSRController {
         prompt += `• Conversion Rate: ${dsrData.conversionRate || 'N/A'}\n`;
         prompt += `• Bills Performance: ${dsrData.billsPerformance || 'N/A'}\n`;
         prompt += `• Quantity Performance: ${dsrData.quantityPerformance || 'N/A'}\n`;
-        prompt += `• Walk-ins: ${dsrData.walkIns || 'N/A'}\n`;
         prompt += `• Loss of Sale: ${dsrData.lossOfSale || 'N/A'}\n`;
         prompt += `• ABS (Avg Bill Size): ${dsrData.absValue || 'N/A'}\n`;
         prompt += `• ABV (Avg Bill Value): ${dsrData.abvValue || 'N/A'}\n`;
@@ -662,7 +686,7 @@ class DSRController {
           staffPerformanceData.staffDetails.forEach((staff, i) => {
             prompt += `   ${i + 1}. ${staff.name}\n`;
             prompt += `      • Conversion: ${staff.conversionRate}%\n`;
-            prompt += `      • Walk-ins: ${staff.walkIns} | Bills: ${staff.bills}\n`;
+            prompt += `      • Bills: ${staff.bills}\n`;
             prompt += `      • Loss of Sale: ${staff.lossOfSale}\n`;
           });
         }
@@ -924,7 +948,6 @@ class DSRController {
         staffPerformance: staffPerfData ? {
           conversionRate: staffPerfData.conversionRate || 'N/A',
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
-          walkIns: staffPerfData.walkIns || 0,
           bills: staffPerfData.bills || 0,
           quantity: staffPerfData.quantity || 0,
           lossOfSale: staffPerfData.lossOfSale || 0,
@@ -993,7 +1016,6 @@ class DSRController {
         staffPerformance: staffPerfData ? {
           conversionRate: staffPerfData.conversionRate || 'N/A',
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
-          walkIns: staffPerfData.walkIns || 0,
           bills: staffPerfData.bills || 0,
           quantity: staffPerfData.quantity || 0,
           lossOfSale: staffPerfData.lossOfSale || 0,
@@ -1064,7 +1086,6 @@ class DSRController {
         staffPerformance: staffPerfData ? {
           conversionRate: staffPerfData.conversionRate || 'N/A',
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
-          walkIns: staffPerfData.walkIns || 0,
           bills: staffPerfData.bills || 0,
           quantity: staffPerfData.quantity || 0,
           lossOfSale: staffPerfData.lossOfSale || 0,

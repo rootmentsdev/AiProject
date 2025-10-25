@@ -23,17 +23,25 @@ class DSRModel {
     
     // Combine both datasets
     const combinedData = `${southData.data}\n${northData.data}`;
-    const sheetDate = southData.date || northData.date;
+    
+    // Use the MOST RECENT date (North is usually more current)
+    // This ensures we fetch cancellations for the correct date
+    const sheetDate = northData.date || southData.date;
     
     console.log("\n✅ COMBINED DATA FROM BOTH CLUSTERS");
     console.log(`📊 Total rows: South (${southData.rowCount}) + North (${northData.rowCount}) = ${southData.rowCount + northData.rowCount}`);
+    console.log(`📅 South Cluster Date: ${southData.date}`);
+    console.log(`📅 North Cluster Date: ${northData.date}`);
+    console.log(`📅 Using date for cancellation/staff analysis: ${sheetDate}`);
     
     // Store the extracted date for use in cancellation analysis
     this.sheetDate = sheetDate;
     
     return {
       data: combinedData,
-      date: sheetDate
+      date: sheetDate,
+      southDate: southData.date,
+      northDate: northData.date
     };
   }
 

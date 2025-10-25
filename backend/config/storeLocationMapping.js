@@ -4,25 +4,25 @@
  */
 
 const LOCATION_ID_TO_STORE_NAME = {
-  '1': 'Z.Edapally',
-  '3': 'SG.Edapally',
+  '1': 'Z- Edapally',
+  '3': 'SG-Edappally',
   '5': 'Trivandrum',
-  '6': 'Z.Edapally', // Alternative ID for Z.Edapally
-  '7': 'PERINTHALMANNA', // Z.Perinthalmanna
+  '6': 'Z- Edapally', // Alternative ID for Z.Edapally
+  '7': 'PMNA', // Perinthalmanna (matches DSR name)
   '8': 'Z.Kottakkal',
-  '9': 'Z.Kottayam',
-  '10': 'SG.Perumbavoor',
-  '11': 'SG.Trissur',
-  '12': 'SG.Chavakkad',
-  '13': 'SG.Calicut',
-  '14': 'SG.Vadakara',
-  '15': 'SG.Edapally', // Alternative ID for SG.Edapally
-  '16': 'SG.Perinthalmanna',
-  '17': 'SG.Kottakkal',
-  '18': 'SG.Manjeri',
-  '19': 'SG.Palakkad', // Palakkad
-  '20': 'SG.Kalpetta',
-  '21': 'KANNUR' // SG.Kannur
+  '9': 'Kottayam',
+  '10': 'Perumbavoor',
+  '11': 'Trissur',
+  '12': 'Chavakkad',
+  '13': 'CALICUT',
+  '14': 'VATAKARA',
+  '15': 'SG-Edappally', // Alternative ID for SG.Edapally
+  '16': 'PMNA', // Perinthalmanna (matches DSR name)
+  '17': 'KOTTAKAL', // Kottakkal (matches DSR name)
+  '18': 'MANJERY',
+  '19': 'Palakkad',
+  '20': 'KALPETTA', // Kalpetta (matches DSR name)
+  '21': 'KANNUR' // Kannur (matches DSR name)
 };
 
 /**
@@ -92,9 +92,21 @@ function getLocationIDFromStoreName(storeName) {
   if (normalizedStoreName.includes('kottakal') || normalizedStoreName.includes('kottakkal')) {
     if (normalizedStoreName.includes('sg')) {
       return '17'; // SG.Kottakkal
-    } else {
+    } else if (normalizedStoreName.includes('z')) {
       return '8'; // Z.Kottakkal
+    } else {
+      // Default to SG.Kottakkal for DSR stores (most common)
+      return '17'; // SG.Kottakkal
     }
+  }
+  
+  // PMNA is an abbreviation for Perinthalmanna
+  if (normalizedStoreName.includes('pmna') || normalizedStoreName === 'pmna') {
+    return '16'; // SG.Perinthalmanna
+  }
+  
+  if (normalizedStoreName.includes('kalpetta') || normalizedStoreName.includes('kalpeta')) {
+    return '20'; // SG.Kalpetta
   }
   
   if (normalizedStoreName.includes('palakkad') || normalizedStoreName.includes('palghat')) {
