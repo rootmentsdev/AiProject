@@ -621,7 +621,7 @@ class DSRController {
       prompt += `✅ Cancellations: NONE (0 cancellations - customer retention is good)\n\n`;
       
       prompt += `📊 DETAILED DSR PERFORMANCE ANALYSIS:\n`;
-      prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
       if (dsrData) {
         prompt += `• Conversion Rate: ${dsrData.conversionRate || 'N/A'}\n`;
         prompt += `• Bills Performance: ${dsrData.billsPerformance || 'N/A'}\n`;
@@ -734,7 +734,7 @@ class DSRController {
     prompt += `• Make it EASY TO UNDERSTAND (no complex jargon)\n`;
     prompt += `• Be SPECIFIC to the actual data above\n`;
     prompt += `• Focus on the PRIMARY root cause\n`;
-    prompt += `• EXACTLY 4 actions per category (not 5, not 3)\n\n`;
+    prompt += `• EXACTLY 3 actions per category (not more, not less)\n\n`;
     
     prompt += `Return ONLY valid JSON. No markdown, no explanations, no code blocks.`;
     
@@ -788,23 +788,88 @@ class DSRController {
     // Process ALL stores with cancellations (critical + cancellation-only)
     const allStoresWithPlans = [];
     
+    // TEMPORARY: Limit to 4 worst stores to avoid API token limits
+    const TEMP_STORE_LIMIT = 4;
+    const totalStores = criticalStores.length + cancellationOnlyStores.length + dsrOnlyStores.length;
+    
     console.log(`\n${'🤖'.repeat(40)}`);
-    console.log(`🤖 STARTING AI-POWERED ACTION PLAN GENERATION FOR ALL STORES`);
-    console.log(`🤖 Total Stores to Analyze: ${criticalStores.length + cancellationOnlyStores.length + dsrOnlyStores.length}`);
+    console.log(`🤖 STARTING AI-POWERED ACTION PLAN GENERATION`);
+    console.log(`🤖 Total Stores Found: ${totalStores}`);
     console.log(`🤖 Critical Stores (Poor DSR + Cancellations): ${criticalStores.length}`);
     console.log(`🤖 Cancellation-Only Stores (Good DSR + Cancellations): ${cancellationOnlyStores.length}`);
     console.log(`🤖 DSR-Only Stores (Poor DSR + No Cancellations): ${dsrOnlyStores.length}`);
-    console.log(`🤖 ALL STORES WILL GET AI-POWERED ACTION PLANS!`);
+    console.log(`⚠️  TEMPORARY LIMIT: Processing only TOP 4 WORST stores to avoid API token limits`);
     console.log(`${'🤖'.repeat(40)}\n`);
     
-    // 1. Process critical stores (both DSR problems + cancellations) - WITH AI
-    for (const store of criticalStores) {
+    // Helper function to calculate "badness score" (higher = worse)
+    const calculateBadnessScore = (store) => {
+      const dsrData = store.dsrData || store;
+      const convRate = parseFloat(dsrData.conversionRate || '100');
+      const abs = parseFloat(dsrData.absValue || '2');
+      const abv = parseFloat(dsrData.abvValue || '5000');
+      
+      // Calculate how far BELOW each threshold (higher = worse)
+      const convBadness = Math.max(0, 80 - convRate);
+      const absBadness = Math.max(0, (1.8 - abs) * 50);
+      const abvBadness = Math.max(0, (4500 - abv) / 100);
+      
+      // Total badness score (higher = worse)
+      // Weight: Conversion (70%), ABS (15%), ABV (15%)
+      return (convBadness * 0.7) + (absBadness * 0.15) + (abvBadness * 0.15);
+    };
+    
+    // Sort all store arrays by badness score (worst first)
+    const sortByBadness = (stores) => {
+      return stores.sort((a, b) => calculateBadnessScore(b) - calculateBadnessScore(a));
+    };
+    
+    sortByBadness(criticalStores);
+    sortByBadness(cancellationOnlyStores);
+    sortByBadness(dsrOnlyStores);
+    
+    // NEW APPROACH: Combine ALL stores and sort by badness score regardless of category
+    const allStoresWithScores = [
+      ...criticalStores.map(s => ({ ...s, category: 'CRITICAL' })),
+      ...cancellationOnlyStores.map(s => ({ ...s, category: 'CANCELLATION_ONLY' })),
+      ...dsrOnlyStores.map(s => ({ ...s, category: 'DSR_ONLY' }))
+    ];
+    
+    // Sort ALL stores by badness score (highest = worst)
+    allStoresWithScores.sort((a, b) => calculateBadnessScore(b) - calculateBadnessScore(a));
+    
+    // Log top 10 worst stores for visibility
+    console.log('🏆 TOP 10 WORST PERFORMING STORES (by badness score):');
+    allStoresWithScores.slice(0, 10).forEach((store, idx) => {
+      const score = calculateBadnessScore(store);
+      const dsrData = store.dsrData || store;
+      console.log(`   ${idx + 1}. ${store.storeName} - Score: ${score.toFixed(2)} (Conv: ${dsrData.conversionRate}%, ABS: ${dsrData.absValue}, ABV: ${dsrData.abvValue}) [${store.category}]`);
+    });
+    console.log('');
+    
+    // TEMPORARY: Select only the TOP 4 WORST stores regardless of category
+    const top4WorstStores = allStoresWithScores.slice(0, TEMP_STORE_LIMIT);
+    
+    console.log(`📊 Processing TOP ${TEMP_STORE_LIMIT} WORST stores:\n`);
+    top4WorstStores.forEach((store, idx) => {
+      const score = calculateBadnessScore(store);
+      console.log(`   ${idx + 1}. ${store.storeName} (Score: ${score.toFixed(2)}, Category: ${store.category})`);
+    });
+    console.log('');
+    
+    // Process TOP 4 WORST stores (regardless of category)
+    for (let idx = 0; idx < top4WorstStores.length; idx++) {
+      const store = top4WorstStores[idx];
+      const category = store.category;
+      
+      // Process based on category
+      if (category === 'CRITICAL') {
+        // Critical store: both DSR + Cancellations
       const dsrData = store.dsrData;
       const cancelData = store.cancellationData;
       const staffPerfData = store.staffPerformanceData;
       
       const dsrIssues = dsrData.rootCauses || dsrData.issues || [dsrData.whyBadPerforming || 'Performance issues'];
-      const dsrLoss = dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0;
+      const dsrLoss = parseFloat(dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0) || 0;
       const topCancellationReasons = cancelData.topReasons || [];
       
       const severity = dsrLoss > 250 && cancelData.totalCancellations > 5 ? 'CRITICAL' :
@@ -832,8 +897,8 @@ class DSRController {
       
       console.log(`✅ Action plan generated for ${store.storeName}\n`);
       
-      // Add 2-second delay between AI calls to avoid rate limiting
-      if (criticalStores.indexOf(store) < criticalStores.length - 1) {
+      // Add delay between AI calls
+      if (idx < top4WorstStores.length - 1) {
         console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
@@ -872,15 +937,14 @@ class DSRController {
         actionPlan,
         problemType: 'BOTH'
       });
-    }
-    
-    // 2. Process cancellation-only stores (good DSR, but has cancellations) - WITH AI
-    for (const store of cancellationOnlyStores) {
+      
+      } else if (category === 'CANCELLATION_ONLY') {
+        // Cancellation-only store: Good DSR but has cancellations
       const cancelData = store.cancellationData;
       const staffPerfData = store.staffPerformanceData;
       const topCancellationReasons = cancelData.topReasons || [];
       
-      const severity = cancelData.totalCancellations > 5 ? 'HIGH' : 
+      const severity = cancelData.totalCancellations > 5 ? 'HIGH' :
                       cancelData.totalCancellations > 3 ? 'MEDIUM' : 'LOW';
       
       console.log(`\n✅ GOOD DSR STORE ANALYSIS: ${store.storeName}`);
@@ -889,26 +953,23 @@ class DSRController {
       console.log(`   Top Cancel Reasons: ${topCancellationReasons.map(r => r.reason).join(', ')}`);
       if (staffPerfData) {
         console.log(`   Staff Performance: ${staffPerfData.conversionRate}% (${staffPerfData.performanceStatus}) ✅ WILL BE SHOWN IN UI`);
-      } else {
-        console.log(`   Staff Performance: NOT AVAILABLE (will show "No data" in UI)`);
       }
       
-      // Generate AI action plan for cancellation-only stores too!
       const actionPlan = await this.generateAIActionPlan(
         store.storeName,
-        [], // No DSR issues
+        [],
         topCancellationReasons,
-        0, // No DSR loss
+        0,
         cancelData.totalCancellations,
-        'CANCELLATION_ONLY', // Only cancellation problems
-        null, // No DSR data
-        staffPerfData // Pass staff performance data
+        'CANCELLATION_ONLY',
+        null,
+        staffPerfData
       );
       
       console.log(`✅ AI action plan generated for ${store.storeName} (Good DSR)\n`);
       
       // Add delay between AI calls
-      if (cancellationOnlyStores.indexOf(store) < cancellationOnlyStores.length - 1) {
+      if (idx < top4WorstStores.length - 1) {
         console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
@@ -929,7 +990,6 @@ class DSRController {
           absValue: 'N/A',
           abvValue: 'N/A'
         },
-        // Staff Performance metrics
         staffPerformance: staffPerfData ? {
           conversionRate: staffPerfData.conversionRate || 'N/A',
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
@@ -946,15 +1006,14 @@ class DSRController {
         actionPlan,
         problemType: 'CANCELLATION_ONLY'
       });
-    }
-    
-    // 3. Process DSR-only stores (poor DSR, but NO cancellations) - WITH AI
-    for (const store of dsrOnlyStores) {
+      
+      } else if (category === 'DSR_ONLY') {
+        // DSR-only store: Poor DSR but NO cancellations
       const dsrData = store;
       const staffPerfData = store.staffPerformanceData;
       
       const dsrIssues = dsrData.rootCauses || dsrData.issues || [dsrData.whyBadPerforming || 'Performance issues'];
-      const dsrLoss = dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0;
+      const dsrLoss = parseFloat(dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0) || 0;
       
       const severity = dsrLoss > 250 ? 'HIGH' : dsrLoss > 150 ? 'MEDIUM' : 'LOW';
       
@@ -967,22 +1026,21 @@ class DSRController {
         console.log(`   Staff Performance: ${staffPerfData.conversionRate}% (${staffPerfData.performanceStatus})`);
       }
       
-      // Generate AI action plan for DSR-only stores
       const actionPlan = await this.generateAIActionPlan(
         store.storeName,
         dsrIssues,
-        [], // No cancellation reasons
+        [],
         dsrLoss,
-        0, // No cancellations
-        'DSR_ONLY', // Only DSR problems
-        dsrData, // Pass full DSR data
-        staffPerfData // Pass staff performance data
+        0,
+        'DSR_ONLY',
+        dsrData,
+        staffPerfData
       );
       
       console.log(`✅ AI action plan generated for ${store.storeName} (DSR-only)\n`);
       
       // Add delay between AI calls
-      if (dsrOnlyStores.indexOf(store) < dsrOnlyStores.length - 1) {
+      if (idx < top4WorstStores.length - 1) {
         console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
@@ -1003,7 +1061,6 @@ class DSRController {
           absValue: dsrData.absValue || 'N/A',
           abvValue: dsrData.abvValue || 'N/A'
         },
-        // Staff Performance metrics
         staffPerformance: staffPerfData ? {
           conversionRate: staffPerfData.conversionRate || 'N/A',
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
@@ -1015,11 +1072,12 @@ class DSRController {
           staffIssues: staffPerfData.staffIssues || [],
           staffDetails: staffPerfData.staffDetails || []
         } : null,
-        totalCancellations: 0, // No cancellations
-        cancellationReasons: [], // No cancellation reasons
+        totalCancellations: 0,
+        cancellationReasons: [],
         actionPlan,
         problemType: 'DSR_ONLY'
       });
+      }
     }
     
     // Sort by severity
@@ -1139,21 +1197,20 @@ class DSRController {
     const uniqueShortTerm = [...new Set(shortTerm)];
     const uniqueLongTerm = [...new Set(longTerm)];
     
-    // Pad to ensure exactly 4 actions per category
+    // Pad to ensure exactly 3 actions per category
     const paddingActions = [
       'Review store operations daily',
       'Monitor key performance metrics',
-      'Engage with customers for feedback',
-      'Implement best practices from top stores'
+      'Engage with customers for feedback'
     ];
     
-    while (uniqueImmediate.length < 4) {
+    while (uniqueImmediate.length < 3) {
       uniqueImmediate.push(paddingActions[uniqueImmediate.length % paddingActions.length]);
     }
-    while (uniqueShortTerm.length < 4) {
+    while (uniqueShortTerm.length < 3) {
       uniqueShortTerm.push(paddingActions[uniqueShortTerm.length % paddingActions.length]);
     }
-    while (uniqueLongTerm.length < 4) {
+    while (uniqueLongTerm.length < 3) {
       uniqueLongTerm.push(paddingActions[uniqueLongTerm.length % paddingActions.length]);
     }
     
@@ -1172,9 +1229,9 @@ class DSRController {
     return {
       rootCause: rootCauseText,
       rootCauseCategory: rootCauseCategory,
-      immediate: uniqueImmediate.slice(0, 4), // Exactly 4
-      shortTerm: uniqueShortTerm.slice(0, 4),
-      longTerm: uniqueLongTerm.slice(0, 4),
+      immediate: uniqueImmediate.slice(0, 3), // Exactly 3
+      shortTerm: uniqueShortTerm.slice(0, 3),
+      longTerm: uniqueLongTerm.slice(0, 3),
       expectedImpact: `Expected ${Math.round(loss * 0.7).toLocaleString()} recovery in revenue + ${Math.round(cancellationCount * 0.6)} fewer cancellations within 2 months`
     };
   }

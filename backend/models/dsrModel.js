@@ -157,6 +157,12 @@ class DSRModel {
         // Track which model was used
         this.lastUsedModel = `Groq: ${selectedModel}`;
 
+        // 🎯 CAPTURE TOKEN USAGE
+        const tokenUsage = response.data.usage || {};
+        const promptTokens = tokenUsage.prompt_tokens || 0;
+        const completionTokens = tokenUsage.completion_tokens || 0;
+        const totalTokens = tokenUsage.total_tokens || 0;
+
         const raw = response.data.choices[0].message.content;
         console.log("🔍 Raw AI Response (DSR Analysis):", raw);
         
@@ -179,6 +185,13 @@ class DSRModel {
               console.log(`   ${i+1}. ${store.storeName} - Conv: ${store.conversionRate}, ABS: ${store.absValue}, ABV: ${store.abvValue}, Failed: ${store.criteriaFailed}`);
             });
           }
+          
+          // 🎨 DISPLAY TOKEN USAGE IN EYE-CATCHING FORMAT
+          this.displayTokenUsage('DSR Analysis', promptTokens, completionTokens, totalTokens, 'Groq');
+          
+          // Attach token usage to parsed response
+          parsed.tokenUsage = { promptTokens, completionTokens, totalTokens };
+          
           return parsed;
         } catch (parseError) {
           console.error("❌ JSON Parse Error from Groq:", parseError.message);
@@ -231,6 +244,12 @@ class DSRModel {
         // Track which model was used
         this.lastUsedModel = 'Google Gemini 1.5 Flash';
 
+        // 🎯 CAPTURE TOKEN USAGE FROM GEMINI
+        const tokenUsage = response.data.usageMetadata || {};
+        const promptTokens = tokenUsage.promptTokenCount || 0;
+        const completionTokens = tokenUsage.candidatesTokenCount || 0;
+        const totalTokens = tokenUsage.totalTokenCount || 0;
+
         const raw = response.data.candidates[0].content.parts[0].text;
         console.log("🔍 Raw AI Response from Gemini:", raw);
         
@@ -253,6 +272,13 @@ class DSRModel {
               console.log(`   ${i+1}. ${store.storeName} - Conv: ${store.conversionRate}, ABS: ${store.absValue}, ABV: ${store.abvValue}, Failed: ${store.criteriaFailed}`);
             });
           }
+          
+          // 🎨 DISPLAY TOKEN USAGE IN EYE-CATCHING FORMAT
+          this.displayTokenUsage('DSR Analysis', promptTokens, completionTokens, totalTokens, 'Gemini');
+          
+          // Attach token usage to parsed response
+          parsed.tokenUsage = { promptTokens, completionTokens, totalTokens };
+          
           return parsed;
         } catch (parseError) {
           console.error("❌ JSON Parse Error from Gemini:", parseError.message);
@@ -366,6 +392,62 @@ class DSRModel {
         "Risk: Data analysis interruption - Mitigation: Fallback response system"
       ]
     };
+  }
+
+  // 🎨 EYE-CATCHING TOKEN USAGE DISPLAY
+  displayTokenUsage(callType, promptTokens, completionTokens, totalTokens, provider) {
+    const width = 80;
+    const line = '═'.repeat(width);
+    const doubleLine = '╔' + line + '╗';
+    const bottomLine = '╚' + line + '╝';
+    
+    console.log('');
+    console.log(`\n${doubleLine}`);
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log('║' + this.centerText(`💰 TOKEN USAGE REPORT 💰`, width) + '║');
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log('╠' + line + '╣');
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log('║' + this.formatLine(`📋 Call Type:`, callType, width) + '║');
+    console.log('║' + this.formatLine(`🤖 AI Provider:`, provider, width) + '║');
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log('╠' + line + '╣');
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log('║' + this.formatLine(`📥 Prompt Tokens:`, promptTokens.toLocaleString(), width) + '║');
+    console.log('║' + this.formatLine(`📤 Completion Tokens:`, completionTokens.toLocaleString(), width) + '║');
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log('╠' + line + '╣');
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log('║' + this.formatLine(`🎯 TOTAL TOKENS:`, `✨ ${totalTokens.toLocaleString()} ✨`, width, true) + '║');
+    console.log('║' + ' '.repeat(width) + '║');
+    
+    // Calculate estimated cost (Groq is free, but show for reference)
+    const estimatedCost = provider === 'Groq' 
+      ? 'FREE (100k tokens/day limit)' 
+      : provider === 'Gemini'
+      ? 'FREE (1.5M tokens/day limit)'
+      : `~$${(totalTokens * 0.0001).toFixed(4)}`;
+    
+    console.log('╠' + line + '╣');
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log('║' + this.formatLine(`💵 Estimated Cost:`, estimatedCost, width) + '║');
+    console.log('║' + ' '.repeat(width) + '║');
+    console.log(bottomLine);
+    console.log('');
+  }
+
+  // Helper: Center text in a line
+  centerText(text, width) {
+    const padding = Math.floor((width - text.length) / 2);
+    return ' '.repeat(padding) + text + ' '.repeat(width - padding - text.length);
+  }
+
+  // Helper: Format key-value line
+  formatLine(key, value, width, bold = false) {
+    const valueStr = bold ? `>>> ${value} <<<` : value;
+    const totalLength = key.length + valueStr.length + 2;
+    const dots = '.'.repeat(Math.max(1, width - totalLength - 4));
+    return `  ${key} ${dots} ${valueStr}  `;
   }
 }
 

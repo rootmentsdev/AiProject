@@ -32,6 +32,23 @@ const dailyResponseSchema = new mongoose.Schema({
     type: String,
     default: 'DSR_ANALYSIS_PROMPT'
   },
+  tokenUsage: {
+    dsrAnalysis: {
+      promptTokens: { type: Number, default: 0 },
+      completionTokens: { type: Number, default: 0 },
+      totalTokens: { type: Number, default: 0 }
+    },
+    actionPlans: [{
+      storeName: String,
+      promptTokens: { type: Number, default: 0 },
+      completionTokens: { type: Number, default: 0 },
+      totalTokens: { type: Number, default: 0 }
+    }],
+    totalPromptTokens: { type: Number, default: 0 },
+    totalCompletionTokens: { type: Number, default: 0 },
+    totalTokens: { type: Number, default: 0 },
+    estimatedCost: { type: Number, default: 0 }
+  },
   createdAt: {
     type: Date,
     default: Date.now

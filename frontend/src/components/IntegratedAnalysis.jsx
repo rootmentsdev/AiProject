@@ -59,11 +59,12 @@ const IntegratedAnalysis = () => {
   };
 
   // Filter stores to only show those with actual DSR issues
-  // Same logic as DSRAnalysisDashboard.jsx
+  // TEMPORARY: Show only 1 worst performing store due to API token limits
   const getFilteredStores = () => {
     if (!analysisData?.allStores) return [];
 
-    return analysisData.allStores.filter((store) => {
+    // First, filter stores with actual DSR issues
+    const storesWithIssues = analysisData.allStores.filter((store) => {
       // Parse DSR values for comparison
       const convRate = parseFloat(store.dsrMetrics?.conversionRate || '0');
       const abs = parseFloat(store.dsrMetrics?.absValue || '0');
@@ -75,12 +76,47 @@ const IntegratedAnalysis = () => {
       const hasAbvIssue = !isNaN(abv) && abv < 4500;
 
       // Return true if store fails at least ONE criterion
-      // This ensures we only show stores with actual DSR performance issues
       return hasConversionIssue || hasAbsIssue || hasAbvIssue;
     });
+
+    // Calculate "badness score" for each store (higher score = worse performance)
+    const storesWithScores = storesWithIssues.map(store => {
+      const convRate = parseFloat(store.dsrMetrics?.conversionRate || '100');
+      const abs = parseFloat(store.dsrMetrics?.absValue || '2');
+      const abv = parseFloat(store.dsrMetrics?.abvValue || '5000');
+      
+      // Calculate how far BELOW each threshold (higher = worse)
+      // Conversion: Target is 80%, if store has 25%, badness = 80-25 = 55
+      const convBadness = Math.max(0, 80 - convRate);
+      
+      // ABS: Target is 1.8, if store has 1.27, badness = (1.8-1.27)*50 = 26.5
+      const absBadness = Math.max(0, (1.8 - abs) * 50);
+      
+      // ABV: Target is 4500, if store has 3000, badness = (4500-3000)/100 = 15
+      const abvBadness = Math.max(0, (4500 - abv) / 100);
+      
+      // Total badness score (higher = worse performance)
+      // Weight: Conversion (70%), ABS (15%), ABV (15%)
+      const badnessScore = (convBadness * 0.7) + (absBadness * 0.15) + (abvBadness * 0.15);
+      
+      return { ...store, badnessScore, convBadness, absBadness, abvBadness };
+    });
+
+    // Sort by WORST performance (highest badness score first)
+    storesWithScores.sort((a, b) => b.badnessScore - a.badnessScore);
+
+    // TEMPORARY: Return only the 4 WORST performing stores (due to API token limits)
+    // TODO: Remove this limit once API capacity increases
+    return storesWithScores.slice(0, 4);
   };
 
   const filteredStores = getFilteredStores();
+  const totalBadStores = analysisData?.allStores?.filter((store) => {
+    const convRate = parseFloat(store.dsrMetrics?.conversionRate || '0');
+    const abs = parseFloat(store.dsrMetrics?.absValue || '0');
+    const abv = parseFloat(store.dsrMetrics?.abvValue || '0');
+    return (!isNaN(convRate) && convRate < 80) || (!isNaN(abs) && abs < 1.8) || (!isNaN(abv) && abv < 4500);
+  }).length || 0;
 
   return (
     <div className="container-fluid py-4">
@@ -147,7 +183,8 @@ const IntegratedAnalysis = () => {
         <Row className="mb-4">
           <Col className="text-center">
             <Spinner animation="border" style={{ width: '3rem', height: '3rem' }} />
-            <p className="mt-3 text-muted">Analyzing DSR data and cancellations...</p>
+            <p className="mt-3 text-muted">Analyzing DSR data and finding top 4 worst performing stores...</p>
+            <small className="text-warning">⚠️ Temporary mode: Showing only TOP 4 worst stores to avoid API limits</small>
           </Col>
         </Row>
       )}
@@ -155,6 +192,26 @@ const IntegratedAnalysis = () => {
       {/* Analysis Results */}
       {analysisData && !loading && (
         <>
+          {/* API Limit Warning */}
+          <Row className="mb-4">
+            <Col>
+              <Alert variant="warning" className="border-0 shadow-sm">
+                <div className="d-flex align-items-center">
+                  <i className="fas fa-exclamation-triangle fa-2x me-3"></i>
+                  <div>
+                    <h6 className="mb-1">
+                      <strong>⚠️ Temporary Limitation: Showing TOP 4 of {totalBadStores} Stores</strong>
+                    </h6>
+                    <small>
+                      Due to API token limits, we're showing only the <strong>TOP 4 WORST performing stores</strong> with detailed action plans. 
+                      Once API capacity increases, all {totalBadStores} underperforming stores will be displayed with full analysis.
+                    </small>
+                  </div>
+                </div>
+              </Alert>
+            </Col>
+          </Row>
+
           {/* Executive Summary */}
           <Row className="mb-4">
             <Col md={3}>
@@ -202,14 +259,14 @@ const IntegratedAnalysis = () => {
                 <Card className="border-0 shadow-sm">
                   <Card.Header className="bg-primary text-white py-3">
                     <h5 className="mb-0">
-                      <i className="fas fa-table me-2"></i>
-                      Stores with DSR Performance Issues - Action Plans
-                      <Badge bg="light" text="dark" className="ms-3">
-                        {filteredStores.length} Stores
+                      <i className="fas fa-exclamation-triangle me-2"></i>
+                      TOP 4 WORST Performing Stores - Detailed Action Plans
+                      <Badge bg="danger" className="ms-3 pulse-animation">
+                        Showing 4 of {totalBadStores} Bad Stores
                       </Badge>
                     </h5>
                     <small className="d-block mt-2 opacity-75">
-                      Showing only stores with Conversion &lt; 80% OR ABS &lt; 1.8 OR ABV &lt; ₹4500
+                      ⚠️ <strong>Temporary Limit:</strong> Showing only the TOP 4 WORST performing stores due to API token limits. Full analysis will show all {totalBadStores} stores once API capacity increases.
                     </small>
                   </Card.Header>
                   <Card.Body className="p-0">
@@ -368,21 +425,121 @@ const IntegratedAnalysis = () => {
                                         </strong>
                                       </Card.Header>
                                       <Card.Body>
+                                        {/* 🎯 ROOT CAUSE - MOST PROMINENT SECTION */}
+                                        {store.actionPlan?.rootCause && (
+                                          <div className="mb-4 p-4 text-center" style={{ 
+                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                            borderRadius: '15px',
+                                            boxShadow: '0 8px 20px rgba(102, 126, 234, 0.3)'
+                                          }}>
+                                            <h3 className="text-white mb-3">
+                                              <i className="fas fa-bullseye me-2"></i>
+                                              ROOT CAUSE IDENTIFIED
+                                            </h3>
+                                            <div className="bg-white rounded p-3 mb-3">
+                                              <h5 className="text-dark mb-0" style={{ fontSize: '1.3rem', lineHeight: '1.6' }}>
+                                                {store.actionPlan.rootCause}
+                                              </h5>
+                                            </div>
+                                            {store.actionPlan?.rootCauseCategory && (
+                                              <Badge 
+                                                bg="light"
+                                                text="dark"
+                                                className="px-4 py-2"
+                                                style={{ fontSize: '1.1rem', fontWeight: '600' }}
+                                              >
+                                                Category: {store.actionPlan.rootCauseCategory.replace(/_/g, ' ')}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {/* 📊 QUICK METRICS OVERVIEW */}
+                                        <Row className="mb-4">
+                                          <Col md={4}>
+                                            <Card className="text-center border-0" style={{ background: '#f8f9fa' }}>
+                                              <Card.Body className="py-3">
+                                                <h6 className="text-muted mb-2">DSR Conversion</h6>
+                                                <h2 className={`mb-0 ${
+                                                  parseFloat(store.dsrMetrics?.conversionRate) < 50 ? 'text-danger' :
+                                                  parseFloat(store.dsrMetrics?.conversionRate) < 80 ? 'text-warning' : 'text-success'
+                                                }`}>
+                                                  {store.dsrMetrics?.conversionRate}%
+                                                </h2>
+                                                <small className="text-muted">Target: 80%</small>
+                                              </Card.Body>
+                                            </Card>
+                                          </Col>
+                                          <Col md={4}>
+                                            <Card className="text-center border-0" style={{ background: '#f8f9fa' }}>
+                                              <Card.Body className="py-3">
+                                                <h6 className="text-muted mb-2">Staff Conversion</h6>
+                                                <h2 className={`mb-0 ${
+                                                  store.staffPerformance ? (
+                                                    parseFloat(store.staffPerformance.conversionRate) < 50 ? 'text-danger' :
+                                                    parseFloat(store.staffPerformance.conversionRate) < 70 ? 'text-warning' : 'text-success'
+                                                  ) : 'text-muted'
+                                                }`}>
+                                                  {store.staffPerformance?.conversionRate || 'N/A'}%
+                                                </h2>
+                                                <small className="text-muted">Target: 70%</small>
+                                              </Card.Body>
+                                            </Card>
+                                          </Col>
+                                          <Col md={4}>
+                                            <Card className="text-center border-0" style={{ background: '#f8f9fa' }}>
+                                              <Card.Body className="py-3">
+                                                <h6 className="text-muted mb-2">Cancellations</h6>
+                                                <h2 className={`mb-0 ${store.totalCancellations > 5 ? 'text-danger' : store.totalCancellations > 0 ? 'text-warning' : 'text-success'}`}>
+                                                  {store.totalCancellations}
+                                                </h2>
+                                                <small className="text-muted">Target: 0</small>
+                                              </Card.Body>
+                                            </Card>
+                                          </Col>
+                                        </Row>
+
+                                        <hr className="my-4"/>
+
+                                        {/* 📋 DETAILED DATA IN TABS */}
                                         <Row>
                           <Col md={4}>
                             {/* DSR Issues */}
                             <div className="mb-3">
                               <h6 className="text-primary">
                                 <i className="fas fa-chart-line me-2"></i>
-                                DSR Status:
+                                DSR Performance Issues:
                               </h6>
                               <ul className="list-unstyled ms-3">
-                                {store.dsrIssues?.map((issue, i) => (
-                                  <li key={i} className={`mb-2 small ${store.dsrStatus === 'GOOD' ? 'text-success' : 'text-dark'}`}>
-                                    <i className={`fas fa-${store.dsrStatus === 'GOOD' ? 'check' : 'arrow-right'} me-2`}></i>
-                                    {issue}
-                                  </li>
-                                ))}
+                                <li className="mb-2 small">
+                                  <i className="fas fa-percentage me-2 text-primary"></i>
+                                  <strong>Conversion:</strong> {store.dsrMetrics?.conversionRate}%
+                                  {parseFloat(store.dsrMetrics?.conversionRate) < 80 && (
+                                    <Badge bg="danger" className="ms-2">Below 80%</Badge>
+                                  )}
+                                </li>
+                                <li className="mb-2 small">
+                                  <i className="fas fa-shopping-cart me-2 text-primary"></i>
+                                  <strong>ABS:</strong> {store.dsrMetrics?.absValue}
+                                  {parseFloat(store.dsrMetrics?.absValue) < 1.8 && (
+                                    <Badge bg="danger" className="ms-2">Below 1.8</Badge>
+                                  )}
+                                </li>
+                                <li className="mb-2 small">
+                                  <i className="fas fa-rupee-sign me-2 text-primary"></i>
+                                  <strong>ABV:</strong> ₹{store.dsrMetrics?.abvValue}
+                                  {parseFloat(store.dsrMetrics?.abvValue) < 4500 && (
+                                    <Badge bg="danger" className="ms-2">Below ₹4500</Badge>
+                                  )}
+                                </li>
+                                <li className="mb-2 small">
+                                  <i className="fas fa-walking me-2 text-primary"></i>
+                                  <strong>Walk-ins:</strong> {store.dsrMetrics?.walkIns}
+                                </li>
+                                <li className="mb-2 small">
+                                  <i className="fas fa-times-circle me-2 text-danger"></i>
+                                  <strong>Loss of Sale:</strong> {store.dsrMetrics?.lossOfSale}
+                                </li>
                               </ul>
                             </div>
                           </Col>
@@ -462,33 +619,19 @@ const IntegratedAnalysis = () => {
                                   
                                   {/* Staff Issues Alert */}
                                   {store.staffPerformance.staffIssues && store.staffPerformance.staffIssues.length > 0 && (
-                                    <div className="alert alert-warning py-2 px-2 small mb-2">
+                                    <div className="alert alert-warning py-2 px-2 small mb-0">
                                       <strong>
                                         <i className="fas fa-exclamation-triangle me-1"></i>
                                         {store.staffPerformance.staffIssues.length} Staff Issue(s):
                                       </strong>
                                       <ul className="mb-0 mt-1 ps-3">
-                                        {store.staffPerformance.staffIssues.slice(0, 2).map((issue, idx) => (
+                                        {store.staffPerformance.staffIssues.slice(0, 3).map((issue, idx) => (
                                           <li key={idx} className="text-danger small">{issue}</li>
                                         ))}
-                                        {store.staffPerformance.staffIssues.length > 2 && (
-                                          <li className="text-muted">+{store.staffPerformance.staffIssues.length - 2} more...</li>
+                                        {store.staffPerformance.staffIssues.length > 3 && (
+                                          <li className="text-muted">+{store.staffPerformance.staffIssues.length - 3} more...</li>
                                         )}
                                       </ul>
-                                    </div>
-                                  )}
-                                  
-                                  {/* Root Cause Indicator */}
-                                  {parseFloat(store.staffPerformance.conversionRate) < 60 && (
-                                    <div className="alert alert-danger py-2 px-2 small mb-0">
-                                      <strong>🎯 ROOT CAUSE:</strong> Staff performance is a <strong>MAJOR CONTRIBUTOR</strong> to low DSR
-                                    </div>
-                                  )}
-                                  
-                                  {parseFloat(store.staffPerformance.conversionRate) >= 70 && store.dsrStatus === 'POOR' && (
-                                    <div className="alert alert-info py-2 px-2 small mb-0">
-                                      <strong>✅ GOOD:</strong> Staff performing well ({store.staffPerformance.conversionRate}%). 
-                                      Look at other factors (cancellations, inventory, competition).
                                     </div>
                                   )}
                                 </div>
@@ -504,90 +647,25 @@ const IntegratedAnalysis = () => {
                           </Col>
                                         </Row>
 
-                                        <hr/>
+                                        <hr className="my-4"/>
 
-                                        {/* Root Cause Analysis */}
-                                        {store.actionPlan?.rootCause && (
-                                          <div className="alert alert-primary mb-3" style={{ borderLeft: '4px solid #0d6efd' }}>
-                                            <h6 className="mb-2">
-                                              <i className="fas fa-search me-2"></i>
-                                              <strong>Root Cause Identified:</strong>
-                                            </h6>
-                                            <p className="mb-2" style={{ fontSize: '1.05rem', fontWeight: '500' }}>
-                                              {store.actionPlan.rootCause}
-                                            </p>
-                                            {store.actionPlan?.rootCauseCategory && (
-                                              <Badge 
-                                                bg={
-                                                  store.actionPlan.rootCauseCategory === 'STAFF_PERFORMANCE' ? 'warning' :
-                                                  store.actionPlan.rootCauseCategory === 'CANCELLATIONS' ? 'danger' :
-                                                  store.actionPlan.rootCauseCategory === 'INVENTORY' ? 'info' :
-                                                  store.actionPlan.rootCauseCategory === 'MARKETING' ? 'success' : 'secondary'
-                                                }
-                                                className="px-3 py-2"
-                                              >
-                                                {store.actionPlan.rootCauseCategory.replace(/_/g, ' ')}
-                                              </Badge>
-                                            )}
-                                          </div>
-                                        )}
-
-                                        {/* Action Plan */}
-                                        <div className="bg-light p-3 rounded">
-                                          <h6 className="text-success mb-3">
-                                            <i className="fas fa-bullseye me-2"></i>
-                                            4-Point CEO Action Plan:
-                                          </h6>
-                                          
-                                          <Row>
-                                            <Col md={4}>
-                                              <div className="mb-3">
-                                                <div className="d-flex align-items-center mb-2">
-                                                  <Badge bg="danger" className="me-2">1</Badge>
-                                                  <strong className="text-danger">Immediate (24-48h)</strong>
-                                                </div>
-                                                <ol className="mb-0 ms-2">
-                                                  {store.actionPlan?.immediate?.map((action, i) => (
-                                                    <li key={i} className="mb-2 small">{action}</li>
-                                                  ))}
-                                                </ol>
-                                              </div>
-                                            </Col>
-                                            <Col md={4}>
-                                              <div className="mb-3">
-                                                <div className="d-flex align-items-center mb-2">
-                                                  <Badge bg="warning" text="dark" className="me-2">2</Badge>
-                                                  <strong className="text-warning">Short-term (1-2 weeks)</strong>
-                                                </div>
-                                                <ol className="mb-0 ms-2">
-                                                  {store.actionPlan?.shortTerm?.map((action, i) => (
-                                                    <li key={i} className="mb-2 small">{action}</li>
-                                                  ))}
-                                                </ol>
-                                              </div>
-                                            </Col>
-                                            <Col md={4}>
-                                              <div className="mb-3">
-                                                <div className="d-flex align-items-center mb-2">
-                                                  <Badge bg="info" className="me-2">3</Badge>
-                                                  <strong className="text-info">Long-term (1-3 months)</strong>
-                                                </div>
-                                                <ol className="mb-0 ms-2">
-                                                  {store.actionPlan?.longTerm?.map((action, i) => (
-                                                    <li key={i} className="mb-2 small">{action}</li>
-                                                  ))}
-                                                </ol>
-                                              </div>
-                                            </Col>
-                                          </Row>
-
-                                          <div className="mt-3 p-3 bg-success bg-opacity-10 rounded border border-success">
-                                            <strong className="text-success">
-                                              <i className="fas fa-chart-line me-2"></i>
-                                              Expected Impact:
-                                            </strong>
-                                            <p className="mb-0 mt-2">{store.actionPlan?.expectedImpact}</p>
-                                          </div>
+                                        {/* 🎯 IMMEDIATE ACTION PLAN (3 Actions) */}
+                                        <div className="mb-4">
+                                          <Card className="border-0 shadow-sm" style={{ borderLeft: '5px solid #dc3545' }}>
+                                            <Card.Body className="p-4">
+                                              <h5 className="mb-3 text-danger">
+                                                <i className="fas fa-bolt me-2"></i>
+                                                <strong>IMMEDIATE ACTIONS (24-48 hours)</strong>
+                                              </h5>
+                                              <ol className="mb-0" style={{ fontSize: '1rem', lineHeight: '2' }}>
+                                                {store.actionPlan?.immediate?.slice(0, 3).map((action, i) => (
+                                                  <li key={i} className="mb-3">
+                                                    <strong>{action}</strong>
+                                                  </li>
+                                                ))}
+                                              </ol>
+                                            </Card.Body>
+                                          </Card>
                                         </div>
 
                                         {/* Individual Staff Details (if available) */}
