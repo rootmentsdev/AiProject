@@ -68,10 +68,30 @@ const DSRAnalysisDashboard = ({ data }) => {
       return [];
     }
 
-    return data.badPerformingStores.map((store, index) => ({
+    // Filter and map stores that have actual issues
+    const filteredStores = data.badPerformingStores.filter((store) => {
+      // Parse values for comparison
+      const convRate = parseFloat(store.conversionRate);
+      const abs = parseFloat(store.absValue);
+      const abv = parseFloat(store.abvValue);
+
+      // Check if store fails ANY criterion (has actual issues)
+      const hasConversionIssue = !isNaN(convRate) && convRate < 80;
+      const hasAbsIssue = !isNaN(abs) && abs < 1.8;
+      const hasAbvIssue = !isNaN(abv) && abv < 4500;
+
+      // Return true if store fails at least ONE criterion
+      return hasConversionIssue || hasAbsIssue || hasAbvIssue;
+    });
+
+    // Map filtered stores to table data
+    return filteredStores.map((store, index) => ({
       id: index + 1,
       storeName: store.storeName,
       conversionRate: store.conversionRate,
+      absValue: store.absValue || 'N/A',
+      abvValue: store.abvValue || 'N/A',
+      criteriaFailed: store.criteriaFailed || 'Performance',
       issue: `Low Performance (${store.conversionRate})`,
       rootCause: store.whyBadPerforming || 'Performance issues identified',
       actions: store.suggestedActions || 'Implement improvement strategies'
@@ -88,13 +108,16 @@ const DSRAnalysisDashboard = ({ data }) => {
     }
 
     // Create CSV headers
-    const headers = ['#', 'Store Name', 'Conversion Rate', 'Root Cause', 'Recommended Actions'];
+    const headers = ['#', 'Store Name', 'Conversion Rate', 'ABS', 'ABV', 'Criteria Failed', 'Root Cause', 'Recommended Actions'];
     
     // Create CSV rows
     const csvRows = issuesData.map(item => [
       item.id,
       `"${item.storeName}"`,
       `"${item.conversionRate}"`,
+      `"${item.absValue}"`,
+      `"${item.abvValue}"`,
+      `"${item.criteriaFailed}"`,
       `"${item.rootCause.replace(/"/g, '""')}"`,
       `"${item.actions.replace(/"/g, '""')}"`
     ]);
@@ -196,18 +219,27 @@ const DSRAnalysisDashboard = ({ data }) => {
                 <Table responsive hover className="mb-0">
                   <thead className="bg-light">
                     <tr>
-                      <th width="8%" className="border-0 py-3 text-muted fw-bold text-center">#</th>
-                      <th width="20%" className="border-0 py-3 text-muted fw-bold">
+                      <th width="5%" className="border-0 py-3 text-muted fw-bold text-center">#</th>
+                      <th width="15%" className="border-0 py-3 text-muted fw-bold">
                         <i className="fas fa-store me-2"></i>Store Name
                       </th>
-                      <th width="15%" className="border-0 py-3 text-muted fw-bold text-center">
-                        <i className="fas fa-percentage me-2"></i>Conversion
+                      <th width="10%" className="border-0 py-3 text-muted fw-bold text-center">
+                        <i className="fas fa-percentage me-2"></i>Conv%
                       </th>
-                      <th width="25%" className="border-0 py-3 text-muted fw-bold">
+                      <th width="8%" className="border-0 py-3 text-muted fw-bold text-center">
+                        <i className="fas fa-shopping-cart me-2"></i>ABS
+                      </th>
+                      <th width="10%" className="border-0 py-3 text-muted fw-bold text-center">
+                        <i className="fas fa-rupee-sign me-2"></i>ABV
+                      </th>
+                      <th width="12%" className="border-0 py-3 text-muted fw-bold text-center">
+                        <i className="fas fa-flag me-2"></i>Issue
+                      </th>
+                      <th width="20%" className="border-0 py-3 text-muted fw-bold">
                         <i className="fas fa-search me-2"></i>Root Cause
                       </th>
-                      <th width="32%" className="border-0 py-3 text-muted fw-bold">
-                        <i className="fas fa-tools me-2"></i>Recommended Actions
+                      <th width="20%" className="border-0 py-3 text-muted fw-bold">
+                        <i className="fas fa-tools me-2"></i>Actions
                       </th>
                     </tr>
                   </thead>
@@ -235,10 +267,39 @@ const DSRAnalysisDashboard = ({ data }) => {
                         </td>
                         <td className="py-3 text-center">
                           <Badge 
-                            bg={parseFloat(item.conversionRate) < 50 ? 'danger' : parseFloat(item.conversionRate) < 70 ? 'warning' : 'success'}
+                            bg={parseFloat(item.conversionRate) < 50 ? 'danger' : parseFloat(item.conversionRate) < 80 ? 'warning' : 'success'}
                             className="px-3 py-2"
                           >
                             {item.conversionRate}
+                          </Badge>
+                        </td>
+                        <td className="py-3 text-center">
+                          <Badge 
+                            bg={parseFloat(item.absValue) < 1.8 ? 'danger' : 'secondary'}
+                            className="px-2 py-1"
+                          >
+                            {item.absValue}
+                          </Badge>
+                        </td>
+                        <td className="py-3 text-center">
+                          <Badge 
+                            bg={parseFloat(item.abvValue) < 4500 ? 'danger' : 'secondary'}
+                            className="px-2 py-1"
+                          >
+                            ₹{item.abvValue}
+                          </Badge>
+                        </td>
+                        <td className="py-3 text-center">
+                          <Badge 
+                            bg={
+                              item.criteriaFailed === 'Multiple' ? 'danger' :
+                              item.criteriaFailed === 'Conversion' ? 'warning' :
+                              item.criteriaFailed === 'ABS' ? 'info' :
+                              item.criteriaFailed === 'ABV' ? 'primary' : 'secondary'
+                            }
+                            className="px-2"
+                          >
+                            {item.criteriaFailed}
                           </Badge>
                         </td>
                         <td className="py-3 text-muted">

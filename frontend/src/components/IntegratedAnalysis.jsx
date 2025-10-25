@@ -58,6 +58,30 @@ const IntegratedAnalysis = () => {
     }));
   };
 
+  // Filter stores to only show those with actual DSR issues
+  // Same logic as DSRAnalysisDashboard.jsx
+  const getFilteredStores = () => {
+    if (!analysisData?.allStores) return [];
+
+    return analysisData.allStores.filter((store) => {
+      // Parse DSR values for comparison
+      const convRate = parseFloat(store.dsrMetrics?.conversionRate || '0');
+      const abs = parseFloat(store.dsrMetrics?.absValue || '0');
+      const abv = parseFloat(store.dsrMetrics?.abvValue || '0');
+
+      // Check if store fails ANY criterion (has actual issues)
+      const hasConversionIssue = !isNaN(convRate) && convRate < 80;
+      const hasAbsIssue = !isNaN(abs) && abs < 1.8;
+      const hasAbvIssue = !isNaN(abv) && abv < 4500;
+
+      // Return true if store fails at least ONE criterion
+      // This ensures we only show stores with actual DSR performance issues
+      return hasConversionIssue || hasAbsIssue || hasAbvIssue;
+    });
+  };
+
+  const filteredStores = getFilteredStores();
+
   return (
     <div className="container-fluid py-4">
       {/* Header */}
@@ -172,35 +196,40 @@ const IntegratedAnalysis = () => {
           </Row>
 
           {/* All Stores with Issues - Table Format */}
-          {analysisData.allStores && analysisData.allStores.length > 0 && (
+          {filteredStores && filteredStores.length > 0 && (
             <Row className="mb-4" style={{ animation: 'fadeIn 0.5s ease-in' }}>
               <Col>
                 <Card className="border-0 shadow-sm">
                   <Card.Header className="bg-primary text-white py-3">
                     <h5 className="mb-0">
                       <i className="fas fa-table me-2"></i>
-                      All Stores with Cancellations - Action Plans
+                      Stores with DSR Performance Issues - Action Plans
                       <Badge bg="light" text="dark" className="ms-3">
-                        {analysisData.allStores.length} Stores
+                        {filteredStores.length} Stores
                       </Badge>
                     </h5>
+                    <small className="d-block mt-2 opacity-75">
+                      Showing only stores with Conversion &lt; 80% OR ABS &lt; 1.8 OR ABV &lt; ₹4500
+                    </small>
                   </Card.Header>
                   <Card.Body className="p-0">
                     <Table responsive hover className="mb-0">
                       <thead style={{ backgroundColor: '#f8f9fa', position: 'sticky', top: 0, zIndex: 1 }}>
                         <tr>
                           <th style={{ width: '40px' }}>#</th>
-                          <th style={{ width: '150px' }}>Store Name</th>
-                          <th style={{ width: '120px' }}>DSR Status</th>
-                          <th style={{ width: '120px' }} className="text-center">Staff Perf.</th>
-                          <th style={{ width: '80px' }} className="text-center">Cancels</th>
-                          <th style={{ width: '220px' }}>Top Cancel Reason</th>
-                          <th style={{ width: '100px' }} className="text-center">Severity</th>
-                          <th style={{ width: '100px' }} className="text-center">Action Plan</th>
+                          <th style={{ width: '130px' }}>Store Name</th>
+                          <th style={{ width: '80px' }} className="text-center">Conv%</th>
+                          <th style={{ width: '70px' }} className="text-center">ABS</th>
+                          <th style={{ width: '90px' }} className="text-center">ABV</th>
+                          <th style={{ width: '100px' }} className="text-center">Staff</th>
+                          <th style={{ width: '70px' }} className="text-center">Cancels</th>
+                          <th style={{ width: '200px' }}>Top Cancel Reason</th>
+                          <th style={{ width: '90px' }} className="text-center">Severity</th>
+                          <th style={{ width: '100px' }} className="text-center">Action</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {analysisData.allStores.map((store, index) => (
+                        {filteredStores.map((store, index) => (
                           <React.Fragment key={index}>
                             <tr 
                               style={{ 
@@ -219,22 +248,36 @@ const IntegratedAnalysis = () => {
                                   <><br/><small className="text-muted">({store.cancellationStoreName})</small></>
                                 )}
                               </td>
-                              <td style={{ verticalAlign: 'middle' }}>
-                                {store.dsrStatus === 'GOOD' ? (
-                                  <Badge bg="success" className="px-2 py-1" style={{ fontSize: '0.75rem' }}>
-                                    <i className="fas fa-check-circle me-1"></i>
-                                    Good
-                                  </Badge>
-                                ) : (
-                                  <Badge bg="danger" className="px-2 py-1" style={{ fontSize: '0.75rem' }}>
-                                    <i className="fas fa-exclamation-circle me-1"></i>
-                                    Poor
-                                  </Badge>
-                                )}
-                                <br/>
-                                <small className="text-muted mt-1 d-block" style={{ fontSize: '0.7rem' }}>
-                                  {store.dsrLoss > 0 ? `₹${store.dsrLoss.toLocaleString()}` : 'No loss'}
-                                </small>
+                              <td style={{ verticalAlign: 'middle' }} className="text-center">
+                                <Badge 
+                                  bg={
+                                    parseFloat(store.dsrMetrics?.conversionRate) < 50 ? 'danger' : 
+                                    parseFloat(store.dsrMetrics?.conversionRate) < 80 ? 'warning' : 
+                                    'success'
+                                  }
+                                  className="px-2 py-1"
+                                  style={{ fontSize: '0.75rem' }}
+                                >
+                                  {store.dsrMetrics?.conversionRate || 'N/A'}
+                                </Badge>
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }} className="text-center">
+                                <Badge 
+                                  bg={parseFloat(store.dsrMetrics?.absValue) < 1.8 ? 'danger' : 'secondary'}
+                                  className="px-2 py-1"
+                                  style={{ fontSize: '0.75rem' }}
+                                >
+                                  {store.dsrMetrics?.absValue || 'N/A'}
+                                </Badge>
+                              </td>
+                              <td style={{ verticalAlign: 'middle' }} className="text-center">
+                                <Badge 
+                                  bg={parseFloat(store.dsrMetrics?.abvValue) < 4500 ? 'danger' : 'secondary'}
+                                  className="px-2 py-1"
+                                  style={{ fontSize: '0.75rem' }}
+                                >
+                                  ₹{store.dsrMetrics?.abvValue || 'N/A'}
+                                </Badge>
                               </td>
                               <td style={{ verticalAlign: 'middle' }} className="text-center">
                                 {store.staffPerformance ? (
@@ -260,14 +303,25 @@ const IntegratedAnalysis = () => {
                                 )}
                               </td>
                               <td style={{ verticalAlign: 'middle' }} className="text-center">
-                                <Badge bg="warning" text="dark" className="px-2 py-1" style={{ fontSize: '0.85rem' }}>
+                                <Badge 
+                                  bg={store.totalCancellations === 0 ? 'success' : 'warning'} 
+                                  text={store.totalCancellations === 0 ? 'white' : 'dark'} 
+                                  className="px-2 py-1" 
+                                  style={{ fontSize: '0.85rem' }}
+                                >
                                   {store.totalCancellations}
                                 </Badge>
                               </td>
                               <td style={{ verticalAlign: 'middle' }}>
                                 <small style={{ lineHeight: '1.4' }}>
-                                  {store.cancellationReasons[0]?.reason.substring(0, 50) || 'N/A'}
-                                  {store.cancellationReasons[0]?.reason.length > 50 && '...'}
+                                  {store.totalCancellations === 0 ? (
+                                    <span className="text-success">✓ No cancellations</span>
+                                  ) : (
+                                    <>
+                                      {store.cancellationReasons[0]?.reason.substring(0, 50) || 'N/A'}
+                                      {store.cancellationReasons[0]?.reason.length > 50 && '...'}
+                                    </>
+                                  )}
                                 </small>
                               </td>
                               <td style={{ verticalAlign: 'middle' }} className="text-center">
@@ -335,21 +389,30 @@ const IntegratedAnalysis = () => {
                           <Col md={4}>
                             {/* Cancellation Reasons */}
                             <div className="mb-3">
-                              <h6 className="text-warning">
-                                <i className="fas fa-times-circle me-2"></i>
-                                Cancellation Problems:
+                              <h6 className={store.totalCancellations === 0 ? 'text-success' : 'text-warning'}>
+                                <i className={`fas fa-${store.totalCancellations === 0 ? 'check-circle' : 'times-circle'} me-2`}></i>
+                                {store.totalCancellations === 0 ? 'Cancellation Status:' : 'Cancellation Problems:'}
                               </h6>
-                              <ul className="list-unstyled ms-3">
-                                {store.cancellationReasons?.map((reason, i) => (
-                                  <li key={i} className="mb-2 small">
-                                    <i className="fas fa-exclamation-triangle me-2 text-warning"></i>
-                                    {reason.reason} 
-                                    <Badge bg="secondary" className="ms-2" style={{ fontSize: '0.7rem' }}>
-                                      {reason.count}x ({reason.percentage}%)
-                                    </Badge>
-                                  </li>
-                                ))}
-                              </ul>
+                              {store.totalCancellations === 0 ? (
+                                <div className="alert alert-success py-2 px-3 small mb-0">
+                                  <i className="fas fa-check-circle me-2"></i>
+                                  <strong>Excellent!</strong> No cancellations recorded.
+                                  <br/>
+                                  Customer retention is good. Focus on improving sales performance.
+                                </div>
+                              ) : (
+                                <ul className="list-unstyled ms-3">
+                                  {store.cancellationReasons?.map((reason, i) => (
+                                    <li key={i} className="mb-2 small">
+                                      <i className="fas fa-exclamation-triangle me-2 text-warning"></i>
+                                      {reason.reason} 
+                                      <Badge bg="secondary" className="ms-2" style={{ fontSize: '0.7rem' }}>
+                                        {reason.count}x ({reason.percentage}%)
+                                      </Badge>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
                           </Col>
                           <Col md={4}>
@@ -443,11 +506,37 @@ const IntegratedAnalysis = () => {
 
                                         <hr/>
 
+                                        {/* Root Cause Analysis */}
+                                        {store.actionPlan?.rootCause && (
+                                          <div className="alert alert-primary mb-3" style={{ borderLeft: '4px solid #0d6efd' }}>
+                                            <h6 className="mb-2">
+                                              <i className="fas fa-search me-2"></i>
+                                              <strong>Root Cause Identified:</strong>
+                                            </h6>
+                                            <p className="mb-2" style={{ fontSize: '1.05rem', fontWeight: '500' }}>
+                                              {store.actionPlan.rootCause}
+                                            </p>
+                                            {store.actionPlan?.rootCauseCategory && (
+                                              <Badge 
+                                                bg={
+                                                  store.actionPlan.rootCauseCategory === 'STAFF_PERFORMANCE' ? 'warning' :
+                                                  store.actionPlan.rootCauseCategory === 'CANCELLATIONS' ? 'danger' :
+                                                  store.actionPlan.rootCauseCategory === 'INVENTORY' ? 'info' :
+                                                  store.actionPlan.rootCauseCategory === 'MARKETING' ? 'success' : 'secondary'
+                                                }
+                                                className="px-3 py-2"
+                                              >
+                                                {store.actionPlan.rootCauseCategory.replace(/_/g, ' ')}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        )}
+
                                         {/* Action Plan */}
                                         <div className="bg-light p-3 rounded">
                                           <h6 className="text-success mb-3">
                                             <i className="fas fa-bullseye me-2"></i>
-                                            CEO Action Plan:
+                                            4-Point CEO Action Plan:
                                           </h6>
                                           
                                           <Row>

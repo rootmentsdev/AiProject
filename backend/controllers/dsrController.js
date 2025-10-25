@@ -149,27 +149,60 @@ class DSRController {
         "7777"
       );
       
-      // Step 3: Get Staff Performance Data
+      // Step 3: Get Staff Performance Data (for each store individually)
       console.log("📊 Step 3: Fetching staff performance data...");
       const staffPerformanceService = require('../services/staffPerformanceService');
+      const { getLocationIDFromStoreName } = require('../config/storeLocationMapping');
       
-      let staffPerformanceResult = null;
+      let staffPerformanceResult = { success: true, analysis: { storeWisePerformance: {} } };
+      
       try {
-        staffPerformanceResult = await staffPerformanceService.getStaffPerformanceAnalysis(
-          cancellationDateRange.DateFrom,
-          cancellationDateRange.DateTo,
-          "0", // All locations
-          "7777"
-        );
+        // Get all unique store names from BOTH DSR analysis AND cancellation analysis
+        const dsrStores = dsrAnalysis.problemStores || dsrAnalysis.badPerformingStores || [];
+        const cancellationStoreNames = Object.keys(cancellationResult?.analysis?.storeWiseProblems || {});
         
-        if (staffPerformanceResult && staffPerformanceResult.success) {
-          console.log("✅ Staff performance data fetched successfully");
-          const storeCount = Object.keys(staffPerformanceResult.analysis?.storeWisePerformance || {}).length;
-          console.log(`📊 Staff performance data available for ${storeCount} stores`);
-        } else {
-          console.log("⚠️ Staff performance data not available or failed");
-          console.log("⚠️ Continuing analysis without staff performance data");
+        // Combine and deduplicate store names
+        const allUniqueStores = new Set([
+          ...dsrStores.map(s => s.storeName || s.name),
+          ...cancellationStoreNames
+        ]);
+        
+        console.log(`📊 Fetching staff performance for ${allUniqueStores.size} stores (DSR + cancellation stores)...`);
+        
+        // Fetch staff performance for each store individually
+        for (const storeName of allUniqueStores) {
+          const locationID = getLocationIDFromStoreName(storeName);
+          
+          if (locationID) {
+            console.log(`   📍 Fetching staff data for ${storeName} (Location ID: ${locationID})...`);
+            
+            try {
+              const storeStaffData = await staffPerformanceService.getStaffPerformanceAnalysis(
+                cancellationDateRange.DateFrom,
+                cancellationDateRange.DateTo,
+                locationID,
+                "7777"
+              );
+              
+              if (storeStaffData && storeStaffData.success && storeStaffData.analysis) {
+                // Add this store's staff performance to the result
+                Object.assign(staffPerformanceResult.analysis.storeWisePerformance, 
+                            storeStaffData.analysis.storeWisePerformance || {});
+                console.log(`   ✅ Staff data fetched for ${storeName}`);
+              } else {
+                console.log(`   ⚠️ No staff data for ${storeName}`);
+              }
+            } catch (storeError) {
+              console.log(`   ⚠️ Failed to fetch staff data for ${storeName}: ${storeError.message}`);
+            }
+          } else {
+            console.log(`   ⚠️ No location ID mapping found for ${storeName}`);
+          }
         }
+        
+        const totalStoresWithStaffData = Object.keys(staffPerformanceResult.analysis.storeWisePerformance).length;
+        console.log(`📊 Staff performance data available for ${totalStoresWithStaffData} out of ${allUniqueStores.size} stores`);
+        
       } catch (staffError) {
         console.error("❌ Staff performance fetch failed:", staffError.message);
         console.log("⚠️ Continuing analysis without staff performance data");
@@ -339,9 +372,13 @@ class DSRController {
 
   // Generate AI-powered action plans for each store
   async generateAIActionPlan(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData = null, staffPerformanceData = null) {
-    try {
-      const prompt = this.buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData, staffPerformanceData);
-      
+    const prompt = this.buildActionPlanPrompt(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType, dsrData, staffPerformanceData);
+    const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
+    
+    // Try Groq first
+    if (GROQ_API_KEY) {
+      try {
       const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
         model: 'llama-3.3-70b-versatile',
         messages: [
@@ -356,7 +393,7 @@ class DSRController {
         ]
       }, {
         headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+            'Authorization': `Bearer ${GROQ_API_KEY}`,
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -365,7 +402,7 @@ class DSRController {
       const aiResponse = response.data.choices[0].message.content;
       
       console.log(`\n${'='.repeat(80)}`);
-      console.log(`🤖 AI ACTION PLAN GENERATED FOR: ${storeName}`);
+        console.log(`🤖 AI ACTION PLAN GENERATED FOR: ${storeName} (via Groq)`);
       console.log(`${'='.repeat(80)}`);
       console.log('📥 FULL AI RESPONSE:');
       console.log(aiResponse);
@@ -380,12 +417,72 @@ class DSRController {
       
       return parsed;
       
-    } catch (error) {
-      console.error(`\n❌ AI Action Plan generation FAILED for ${storeName}`);
-      console.error(`❌ Error: ${error.message}`);
+      } catch (groqError) {
+        console.error(`\n❌ Groq Action Plan generation FAILED for ${storeName}`);
+        console.error(`❌ Error: ${groqError.message}`);
+        console.error(`❌ Status: ${groqError.response?.status}`);
+        
+        // If rate limit or error, try Gemini
+        if (GEMINI_API_KEY && groqError.response?.status === 429) {
+          console.log(`🔄 Groq rate limited, switching to Google Gemini...\n`);
+          // Continue to Gemini below
+        } else {
+          throw groqError; // Re-throw if not rate limit or no Gemini key
+        }
+      }
+    }
+    
+    // Try Google Gemini (if Groq failed or no Groq key)
+    if (GEMINI_API_KEY) {
+      try {
+        console.log(`📨 Generating action plan via Google Gemini for ${storeName}...`);
+        
+        const response = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            contents: [{
+              parts: [{
+                text: `You are a retail business consultant specializing in costume rental business. Provide actionable, CEO-level strategic advice.\n\n${prompt}`
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 4000
+            }
+          },
+          {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 40000
+          }
+        );
+
+        const aiResponse = response.data.candidates[0].content.parts[0].text;
+        
+        console.log(`\n${'='.repeat(80)}`);
+        console.log(`🤖 AI ACTION PLAN GENERATED FOR: ${storeName} (via Gemini)`);
+        console.log(`${'='.repeat(80)}`);
+        console.log('📥 FULL AI RESPONSE:');
+        console.log(aiResponse);
+        console.log(`${'='.repeat(80)}\n`);
+        
+        // Parse AI response
+        const parsed = this.parseAIActionPlan(aiResponse);
+        
+        console.log('✅ PARSED ACTION PLAN:');
+        console.log(JSON.stringify(parsed, null, 2));
+        console.log(`${'='.repeat(80)}\n`);
+        
+        return parsed;
+        
+      } catch (geminiError) {
+        console.error(`\n❌ Gemini Action Plan generation FAILED for ${storeName}`);
+        console.error(`❌ Error: ${geminiError.message}`);
       console.error(`❌ Falling back to rule-based plan...\n`);
+        // Continue to fallback below
+      }
+    }
       
-      // Fallback to rule-based plan
+    // Fallback to rule-based plan (if both APIs failed)
       const fallbackPlan = this.generateActionPlanForStore(storeName, dsrIssues, cancellationReasons, dsrLoss, cancellationCount, problemType);
       
       console.log('📋 FALLBACK PLAN GENERATED:');
@@ -393,7 +490,6 @@ class DSRController {
       console.log(`${'─'.repeat(80)}\n`);
       
       return fallbackPlan;
-    }
   }
 
   // Build AI prompt for action plan with detailed DSR, cancellation, and staff performance data
@@ -483,9 +579,7 @@ class DSRController {
       prompt += `• Store Status: Meeting DSR targets but losing customers\n`;
       prompt += `\n📋 Cancellation Breakdown:\n`;
       cancellationReasons.forEach((reason, i) => {
-        prompt += `   ${i + 1}. ${reason.reason}\n`;
-        prompt += `      • Frequency: ${reason.count} times (${reason.percentage}%)\n`;
-        prompt += `      • Impact: ${reason.count > 2 ? 'HIGH' : reason.count > 1 ? 'MEDIUM' : 'LOW'}\n`;
+        prompt += `   ${i + 1}. ${reason.reason} - ${reason.count} times (${reason.percentage}%)\n`;
       });
       
       // Add staff performance for cancellation-only stores
@@ -494,69 +588,153 @@ class DSRController {
         prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         prompt += `• Store Conversion Rate: ${staffPerformanceData.conversionRate}%\n`;
         prompt += `• Performance Status: ${staffPerformanceData.performanceStatus}\n`;
-        prompt += `Staff performance is good, but cancellations are affecting customer retention.\n`;
+        prompt += `• Walk-ins: ${staffPerformanceData.walkIns}\n`;
+        prompt += `• Bills: ${staffPerformanceData.bills}\n`;
+        prompt += `• Loss of Sale: ${staffPerformanceData.lossOfSale}\n`;
+        prompt += `• Staff Count: ${staffPerformanceData.staffCount}\n`;
+        
+        if (staffPerformanceData.staffIssues && staffPerformanceData.staffIssues.length > 0) {
+          prompt += `\n⚠️ Staff Issues: ${staffPerformanceData.staffIssues.length} identified\n`;
+        }
+        
+        prompt += `\n🔍 ROOT CAUSE ANALYSIS:\n`;
+        const convRate = parseFloat(staffPerformanceData.conversionRate);
+        if (convRate < 60) {
+          prompt += `⚠️ COMBINATION: DSR is good overall, BUT staff performance is POOR (${staffPerformanceData.conversionRate}%).\n`;
+          prompt += `Root cause is BOTH cancellations AND staff performance issues.\n`;
+          prompt += `Primary focus: Fix staff performance first, then address cancellations.\n`;
+        } else if (convRate >= 70) {
+          prompt += `✅ Staff performing well (${staffPerformanceData.conversionRate}%).\n`;
+          prompt += `Root cause is CANCELLATIONS ONLY - not staff related.\n`;
+          prompt += `Primary focus: Fix cancellation issues (inventory, policies, customer experience).\n`;
+        } else {
+          prompt += `⚠️ Staff performance is AVERAGE (${staffPerformanceData.conversionRate}%).\n`;
+          prompt += `Root cause is primarily CANCELLATIONS, but staff could improve.\n`;
+          prompt += `Primary focus: Fix cancellations, secondary: improve staff conversion.\n`;
+        }
+      } else {
+        prompt += `\n⚠️ No staff performance data available for this store.\n`;
+        prompt += `Root cause: CANCELLATIONS (staff data unavailable for comparison).\n`;
+      }
+    } else if (problemType === 'DSR_ONLY') {
+      prompt += `📊 DSR Performance: POOR (Below targets)\n`;
+      prompt += `✅ Cancellations: NONE (0 cancellations - customer retention is good)\n\n`;
+      
+      prompt += `📊 DETAILED DSR PERFORMANCE ANALYSIS:\n`;
+      prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      if (dsrData) {
+        prompt += `• Conversion Rate: ${dsrData.conversionRate || 'N/A'}\n`;
+        prompt += `• Bills Performance: ${dsrData.billsPerformance || 'N/A'}\n`;
+        prompt += `• Quantity Performance: ${dsrData.quantityPerformance || 'N/A'}\n`;
+        prompt += `• Walk-ins: ${dsrData.walkIns || 'N/A'}\n`;
+        prompt += `• Loss of Sale: ${dsrData.lossOfSale || 'N/A'}\n`;
+        prompt += `• ABS (Avg Bill Size): ${dsrData.absValue || 'N/A'}\n`;
+        prompt += `• ABV (Avg Bill Value): ${dsrData.abvValue || 'N/A'}\n`;
+        prompt += `• Estimated Revenue Loss: ₹${dsrLoss.toLocaleString()}\n\n`;
+      }
+      
+      prompt += `📋 DSR Issues:\n`;
+      dsrIssues.forEach((issue, i) => {
+        prompt += `   ${i + 1}. ${issue}\n`;
+      });
+      
+      // Add staff performance for DSR-only stores
+      if (staffPerformanceData) {
+        prompt += `\n👥 STAFF PERFORMANCE ANALYSIS:\n`;
+        prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        prompt += `• Store Conversion Rate: ${staffPerformanceData.conversionRate}%\n`;
+        prompt += `• Performance Status: ${staffPerformanceData.performanceStatus}\n`;
+        prompt += `• Walk-ins: ${staffPerformanceData.walkIns}\n`;
+        prompt += `• Bills: ${staffPerformanceData.bills}\n`;
+        prompt += `• Quantity: ${staffPerformanceData.quantity || 'N/A'}\n`;
+        prompt += `• Loss of Sale: ${staffPerformanceData.lossOfSale}\n`;
+        prompt += `• Staff Count: ${staffPerformanceData.staffCount}\n`;
+        
+        if (staffPerformanceData.staffIssues && staffPerformanceData.staffIssues.length > 0) {
+          prompt += `\n⚠️ Staff Issues Identified: ${staffPerformanceData.staffIssues.length}\n`;
+          staffPerformanceData.staffIssues.slice(0, 3).forEach((issue, i) => {
+            prompt += `   ${i + 1}. ${issue}\n`;
+          });
+        }
+        
+        if (staffPerformanceData.staffDetails && staffPerformanceData.staffDetails.length > 0) {
+          prompt += `\n👤 Individual Staff Performance:\n`;
+          staffPerformanceData.staffDetails.forEach((staff, i) => {
+            prompt += `   ${i + 1}. ${staff.name}\n`;
+            prompt += `      • Conversion: ${staff.conversionRate}%\n`;
+            prompt += `      • Walk-ins: ${staff.walkIns} | Bills: ${staff.bills}\n`;
+            prompt += `      • Loss of Sale: ${staff.lossOfSale}\n`;
+          });
+        }
+        
+        prompt += `\n🔍 ROOT CAUSE ANALYSIS:\n`;
+        if (parseFloat(staffPerformanceData.conversionRate) < 60) {
+          prompt += `⚠️ STAFF PERFORMANCE is the PRIMARY ROOT CAUSE.\n`;
+          prompt += `The store's ${staffPerformanceData.conversionRate}% conversion rate indicates staff training/motivation issues.\n`;
+          prompt += `With 0 cancellations, the problem is clearly in sales conversion, not customer satisfaction.\n`;
+        } else {
+          prompt += `Staff performance is acceptable (${staffPerformanceData.conversionRate}%).\n`;
+          prompt += `Low DSR performance likely caused by other factors:\n`;
+          prompt += `   - Inventory issues (check loss of sale: ${staffPerformanceData.lossOfSale})\n`;
+          prompt += `   - Low walk-ins (${staffPerformanceData.walkIns}) - marketing/visibility issue\n`;
+          prompt += `   - Pricing/competition issues\n`;
+        }
+      } else {
+        prompt += `\n⚠️ No staff performance data available for this store.\n`;
+        prompt += `Root cause: Unknown (need to investigate DSR issues manually).\n`;
       }
     }
     
-    prompt += `\n🎯 YOUR DETAILED CEO-LEVEL TASK:\n`;
+    prompt += `\n🎯 ROOT CAUSE DIAGNOSIS RULES:\n`;
     prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    prompt += `Analyze the SPECIFIC data points above and provide a COMPREHENSIVE, DATA-DRIVEN action plan in JSON format:\n\n`;
+    prompt += `Use these business logic rules to identify the root cause:\n\n`;
+    prompt += `IF YOU FIND:                          → ROOT CAUSE IS:\n`;
+    prompt += `• High walk-ins + low conversion      → Staff follow-up / poor selling skill\n`;
+    prompt += `• Low walk-ins + normal conversion    → Marketing or visibility issue\n`;
+    prompt += `• High loss of sale with size issue   → Inventory planning issue\n`;
+    prompt += `• High cancellations for same reason  → Process/policy issue\n`;
+    prompt += `• Staff conversion < 60%              → Staff training urgently needed\n`;
+    prompt += `• Staff conversion >= 70%             → Problem is NOT staff (check inventory/competition)\n\n`;
     
-    prompt += `1. "suggestions": Array of 4-5 SPECIFIC insights based on the actual data:\n`;
-    prompt += `   - Identify the ROOT CAUSE of each cancellation reason\n`;
-    prompt += `   - Explain WHY the DSR metrics are poor (if applicable)\n`;
-    prompt += `   - Find PATTERNS in the cancellation data\n`;
-    prompt += `   - Calculate potential revenue recovery\n`;
-    prompt += `   Example: "Root cause: 66% of cancellations are due to X, indicating Y problem"\n\n`;
+    prompt += `\n🎯 YOUR CEO-LEVEL TASK:\n`;
+    prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    prompt += `Provide a SIMPLE, CLEAR, ACTIONABLE plan in JSON format:\n\n`;
     
-    prompt += `2. "immediate": Array of 4-5 URGENT actions for 24-48 hours:\n`;
-    prompt += `   - Must be SPECIFIC to the cancellation reasons listed above\n`;
-    prompt += `   - Must address the HIGHEST frequency cancellation reason first\n`;
-    prompt += `   - Include WHO should do it and HOW\n`;
-    prompt += `   Example: "Store manager to call all ${cancellationCount} cancelled customers personally within 24 hours"\n\n`;
+    prompt += `1. "rootCause": One clear sentence identifying THE PRIMARY root cause:\n`;
+    prompt += `   - Use the diagnosis rules above\n`;
+    prompt += `   - Be specific: Is it STAFF? CANCELLATIONS? INVENTORY? MARKETING? or COMBINATION?\n`;
+    prompt += `   Example: "PRIMARY ROOT CAUSE: Staff follow-up issue (conversion only 45%) + high cancellations due to inventory problems"\n\n`;
     
-    prompt += `3. "shortTerm": Array of 4-5 tactical actions for 1-2 weeks:\n`;
-    prompt += `   - Address each major cancellation reason with specific solutions\n`;
-    prompt += `   - Include process improvements\n`;
-    prompt += `   - Add staff training for identified gaps\n`;
-    if (problemType === 'BOTH') {
-      prompt += `   - Fix conversion rate issues with specific tactics\n`;
-    }
-    prompt += `\n`;
+    prompt += `2. "rootCauseCategory": Pick ONE from: "STAFF_PERFORMANCE", "CANCELLATIONS", "INVENTORY", "MARKETING", "COMBINATION"\n\n`;
     
-    prompt += `4. "longTerm": Array of 4-5 strategic changes for 1-3 months:\n`;
+    prompt += `3. "immediate": Array of EXACTLY 4 URGENT actions for 24-48 hours:\n`;
+    prompt += `   - Keep it SHORT and ACTIONABLE (one line each)\n`;
+    prompt += `   - Include WHO and WHAT\n`;
+    prompt += `   Example: "Store manager: Call all ${cancellationCount} cancelled customers within 24h"\n\n`;
+    
+    prompt += `4. "shortTerm": Array of EXACTLY 4 tactical actions for 1-2 weeks:\n`;
+    prompt += `   - Address the root cause directly\n`;
+    prompt += `   - Keep it SIMPLE (one line each)\n\n`;
+    
+    prompt += `5. "longTerm": Array of EXACTLY 4 strategic actions for 1-3 months:\n`;
     prompt += `   - System-level improvements\n`;
-    prompt += `   - Technology/infrastructure investments\n`;
-    prompt += `   - Cultural/process changes\n`;
-    prompt += `   - Build competitive advantages\n\n`;
+    prompt += `   - Keep it CLEAR (one line each)\n\n`;
     
-    prompt += `5. "expectedImpact": One detailed sentence with:\n`;
-    prompt += `   - Specific % reduction in cancellations expected\n`;
-    prompt += `   - Estimated revenue recovery in ₹\n`;
+    prompt += `6. "expectedImpact": One sentence with specific numbers:\n`;
     if (problemType === 'BOTH') {
-      prompt += `   - Expected improvement in conversion rate\n`;
+      prompt += `   Example: "Reduce cancellations by 40% (${Math.round(cancellationCount * 0.4)} fewer), recover ₹${Math.round(dsrLoss * 0.6).toLocaleString()}, improve conversion to 70% in 2 months"\n\n`;
+    } else if (problemType === 'DSR_ONLY') {
+      prompt += `   Example: "Improve conversion to 70%, recover ₹${Math.round(dsrLoss * 0.6).toLocaleString()}, increase ABV by 20% in 2 months"\n\n`;
+    } else {
+      prompt += `   Example: "Reduce cancellations by 40% (${Math.round(cancellationCount * 0.4)} fewer), recover ₹500, improve retention in 2 months"\n\n`;
     }
-    prompt += `   Example: "Expected to reduce cancellations by 40% (${Math.round(cancellationCount * 0.4)} fewer), recover ₹${Math.round(dsrLoss * 0.6).toLocaleString()}, and improve conversion to 75% within 2 months"\n\n`;
     
-    prompt += `🔍 FOCUS AREAS (prioritize based on data above):\n`;
-    prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    if (problemType === 'BOTH') {
-      prompt += `• CRITICAL: Fix walk-in to bill conversion (only ${dsrData?.conversionRate || 'low'} converting)\n`;
-      prompt += `• HIGH: Address each cancellation reason with specific solutions\n`;
-      prompt += `• HIGH: Improve bills and quantity performance\n`;
-    }
-    prompt += `• Reduce EACH specific cancellation reason (focus on highest % first)\n`;
-    prompt += `• Improve customer communication and expectations management\n`;
-    prompt += `• Enhance inventory management and costume availability\n`;
-    prompt += `• Train staff on customer experience and sales techniques\n`;
-    prompt += `• Build customer loyalty and retention programs\n`;
-    prompt += `• Implement feedback loops and continuous improvement\n\n`;
-    
-    prompt += `⚠️ IMPORTANT: Your recommendations must be:\n`;
-    prompt += `• SPECIFIC to the cancellation reasons in the data above\n`;
-    prompt += `• ACTIONABLE with clear steps\n`;
-    prompt += `• MEASURABLE with clear KPIs\n`;
-    prompt += `• REALISTIC for a costume rental business in Kerala\n\n`;
+    prompt += `⚠️ CRITICAL REQUIREMENTS:\n`;
+    prompt += `• Keep actions SHORT (one line, maximum 12 words)\n`;
+    prompt += `• Make it EASY TO UNDERSTAND (no complex jargon)\n`;
+    prompt += `• Be SPECIFIC to the actual data above\n`;
+    prompt += `• Focus on the PRIMARY root cause\n`;
+    prompt += `• EXACTLY 4 actions per category (not 5, not 3)\n\n`;
     
     prompt += `Return ONLY valid JSON. No markdown, no explanations, no code blocks.`;
     
@@ -589,7 +767,8 @@ class DSRController {
       
       // Validate structure
       return {
-        suggestions: parsed.suggestions || [],
+        rootCause: parsed.rootCause || 'Root cause analysis pending',
+        rootCauseCategory: parsed.rootCauseCategory || 'COMBINATION',
         immediate: parsed.immediate || [],
         shortTerm: parsed.shortTerm || [],
         longTerm: parsed.longTerm || [],
@@ -611,9 +790,10 @@ class DSRController {
     
     console.log(`\n${'🤖'.repeat(40)}`);
     console.log(`🤖 STARTING AI-POWERED ACTION PLAN GENERATION FOR ALL STORES`);
-    console.log(`🤖 Total Stores to Analyze: ${criticalStores.length + cancellationOnlyStores.length}`);
+    console.log(`🤖 Total Stores to Analyze: ${criticalStores.length + cancellationOnlyStores.length + dsrOnlyStores.length}`);
     console.log(`🤖 Critical Stores (Poor DSR + Cancellations): ${criticalStores.length}`);
-    console.log(`🤖 Cancellation-Only Stores (Good DSR): ${cancellationOnlyStores.length}`);
+    console.log(`🤖 Cancellation-Only Stores (Good DSR + Cancellations): ${cancellationOnlyStores.length}`);
+    console.log(`🤖 DSR-Only Stores (Poor DSR + No Cancellations): ${dsrOnlyStores.length}`);
     console.log(`🤖 ALL STORES WILL GET AI-POWERED ACTION PLANS!`);
     console.log(`${'🤖'.repeat(40)}\n`);
     
@@ -672,7 +852,8 @@ class DSRController {
           quantityPerformance: dsrData.quantityPerformance || 'N/A',
           walkIns: dsrData.walkIns || 'N/A',
           lossOfSale: dsrData.lossOfSale || 'N/A',
-          absValue: dsrData.absValue || 'N/A'
+          absValue: dsrData.absValue || 'N/A',
+          abvValue: dsrData.abvValue || 'N/A'
         },
         // Staff Performance metrics
         staffPerformance: staffPerfData ? {
@@ -680,9 +861,11 @@ class DSRController {
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
           walkIns: staffPerfData.walkIns || 0,
           bills: staffPerfData.bills || 0,
+          quantity: staffPerfData.quantity || 0,
           lossOfSale: staffPerfData.lossOfSale || 0,
           staffCount: staffPerfData.staffCount || 0,
-          staffIssues: staffPerfData.staffIssues || []
+          staffIssues: staffPerfData.staffIssues || [],
+          staffDetails: staffPerfData.staffDetails || []
         } : null,
         totalCancellations: cancelData.totalCancellations,
         cancellationReasons: topCancellationReasons.slice(0, 3),
@@ -705,7 +888,9 @@ class DSRController {
       console.log(`   Cancellations: ${cancelData.totalCancellations}`);
       console.log(`   Top Cancel Reasons: ${topCancellationReasons.map(r => r.reason).join(', ')}`);
       if (staffPerfData) {
-        console.log(`   Staff Performance: ${staffPerfData.conversionRate}% (${staffPerfData.performanceStatus})`);
+        console.log(`   Staff Performance: ${staffPerfData.conversionRate}% (${staffPerfData.performanceStatus}) ✅ WILL BE SHOWN IN UI`);
+      } else {
+        console.log(`   Staff Performance: NOT AVAILABLE (will show "No data" in UI)`);
       }
       
       // Generate AI action plan for cancellation-only stores too!
@@ -741,7 +926,8 @@ class DSRController {
           quantityPerformance: 'Good',
           walkIns: 'N/A',
           lossOfSale: 'Minimal',
-          absValue: 'N/A'
+          absValue: 'N/A',
+          abvValue: 'N/A'
         },
         // Staff Performance metrics
         staffPerformance: staffPerfData ? {
@@ -749,14 +935,90 @@ class DSRController {
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
           walkIns: staffPerfData.walkIns || 0,
           bills: staffPerfData.bills || 0,
+          quantity: staffPerfData.quantity || 0,
           lossOfSale: staffPerfData.lossOfSale || 0,
           staffCount: staffPerfData.staffCount || 0,
-          staffIssues: staffPerfData.staffIssues || []
+          staffIssues: staffPerfData.staffIssues || [],
+          staffDetails: staffPerfData.staffDetails || []
         } : null,
         totalCancellations: cancelData.totalCancellations,
         cancellationReasons: topCancellationReasons.slice(0, 3),
         actionPlan,
         problemType: 'CANCELLATION_ONLY'
+      });
+    }
+    
+    // 3. Process DSR-only stores (poor DSR, but NO cancellations) - WITH AI
+    for (const store of dsrOnlyStores) {
+      const dsrData = store;
+      const staffPerfData = store.staffPerformanceData;
+      
+      const dsrIssues = dsrData.rootCauses || dsrData.issues || [dsrData.whyBadPerforming || 'Performance issues'];
+      const dsrLoss = dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0;
+      
+      const severity = dsrLoss > 250 ? 'HIGH' : dsrLoss > 150 ? 'MEDIUM' : 'LOW';
+      
+      console.log(`\n📊 DSR-ONLY STORE ANALYSIS: ${store.storeName}`);
+      console.log(`   DSR Status: POOR (Below targets)`);
+      console.log(`   DSR Loss: ₹${dsrLoss.toLocaleString()}`);
+      console.log(`   Cancellations: 0 (None)`);
+      console.log(`   DSR Issues: ${dsrIssues.join(', ')}`);
+      if (staffPerfData) {
+        console.log(`   Staff Performance: ${staffPerfData.conversionRate}% (${staffPerfData.performanceStatus})`);
+      }
+      
+      // Generate AI action plan for DSR-only stores
+      const actionPlan = await this.generateAIActionPlan(
+        store.storeName,
+        dsrIssues,
+        [], // No cancellation reasons
+        dsrLoss,
+        0, // No cancellations
+        'DSR_ONLY', // Only DSR problems
+        dsrData, // Pass full DSR data
+        staffPerfData // Pass staff performance data
+      );
+      
+      console.log(`✅ AI action plan generated for ${store.storeName} (DSR-only)\n`);
+      
+      // Add delay between AI calls
+      if (dsrOnlyStores.indexOf(store) < dsrOnlyStores.length - 1) {
+        console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      allStoresWithPlans.push({
+        storeName: store.storeName,
+        cancellationStoreName: store.storeName,
+        severity,
+        dsrStatus: 'POOR',
+        dsrIssues,
+        dsrLoss,
+        dsrMetrics: {
+          conversionRate: dsrData.conversionRate || 'N/A',
+          billsPerformance: dsrData.billsPerformance || 'N/A',
+          quantityPerformance: dsrData.quantityPerformance || 'N/A',
+          walkIns: dsrData.walkIns || 'N/A',
+          lossOfSale: dsrData.lossOfSale || 'N/A',
+          absValue: dsrData.absValue || 'N/A',
+          abvValue: dsrData.abvValue || 'N/A'
+        },
+        // Staff Performance metrics
+        staffPerformance: staffPerfData ? {
+          conversionRate: staffPerfData.conversionRate || 'N/A',
+          performanceStatus: staffPerfData.performanceStatus || 'N/A',
+          walkIns: staffPerfData.walkIns || 0,
+          bills: staffPerfData.bills || 0,
+          quantity: staffPerfData.quantity || 0,
+          lossOfSale: staffPerfData.lossOfSale || 0,
+          staffCount: staffPerfData.staffCount || 0,
+          staffIssues: staffPerfData.staffIssues || [],
+          staffDetails: staffPerfData.staffDetails || []
+        } : null,
+        totalCancellations: 0, // No cancellations
+        cancellationReasons: [], // No cancellation reasons
+        actionPlan,
+        problemType: 'DSR_ONLY'
       });
     }
     
@@ -766,7 +1028,7 @@ class DSRController {
     
     // Calculate summary
     const totalLoss = allStoresWithPlans
-      .filter(s => s.problemType === 'BOTH')
+      .filter(s => s.problemType === 'BOTH' || s.problemType === 'DSR_ONLY')
       .reduce((sum, s) => sum + s.dsrLoss, 0);
     
     const allCancellations = Object.values(cancellationResult?.analysis?.storeWiseProblems || {})
@@ -877,10 +1139,42 @@ class DSRController {
     const uniqueShortTerm = [...new Set(shortTerm)];
     const uniqueLongTerm = [...new Set(longTerm)];
     
+    // Pad to ensure exactly 4 actions per category
+    const paddingActions = [
+      'Review store operations daily',
+      'Monitor key performance metrics',
+      'Engage with customers for feedback',
+      'Implement best practices from top stores'
+    ];
+    
+    while (uniqueImmediate.length < 4) {
+      uniqueImmediate.push(paddingActions[uniqueImmediate.length % paddingActions.length]);
+    }
+    while (uniqueShortTerm.length < 4) {
+      uniqueShortTerm.push(paddingActions[uniqueShortTerm.length % paddingActions.length]);
+    }
+    while (uniqueLongTerm.length < 4) {
+      uniqueLongTerm.push(paddingActions[uniqueLongTerm.length % paddingActions.length]);
+    }
+    
+    // Determine root cause category
+    let rootCauseCategory = 'COMBINATION';
+    let rootCauseText = 'Multiple factors affecting store performance';
+    
+    if (problemType === 'CANCELLATION_ONLY') {
+      rootCauseCategory = 'CANCELLATIONS';
+      rootCauseText = `PRIMARY ROOT CAUSE: High cancellations (${cancellationCount}) affecting customer retention`;
+    } else if (dsrIssues.some(i => i.toLowerCase().includes('staff') || i.toLowerCase().includes('conversion'))) {
+      rootCauseCategory = 'STAFF_PERFORMANCE';
+      rootCauseText = `PRIMARY ROOT CAUSE: Staff performance and conversion issues combined with cancellations`;
+    }
+    
     return {
-      immediate: uniqueImmediate.slice(0, 3), // Top 3
-      shortTerm: uniqueShortTerm.slice(0, 3),
-      longTerm: uniqueLongTerm.slice(0, 3),
+      rootCause: rootCauseText,
+      rootCauseCategory: rootCauseCategory,
+      immediate: uniqueImmediate.slice(0, 4), // Exactly 4
+      shortTerm: uniqueShortTerm.slice(0, 4),
+      longTerm: uniqueLongTerm.slice(0, 4),
       expectedImpact: `Expected ${Math.round(loss * 0.7).toLocaleString()} recovery in revenue + ${Math.round(cancellationCount * 0.6)} fewer cancellations within 2 months`
     };
   }

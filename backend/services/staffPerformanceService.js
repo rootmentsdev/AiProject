@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { getStoreNameFromLocationID } = require('../config/storeLocationMapping');
 
 class StaffPerformanceService {
   constructor() {
@@ -152,9 +153,10 @@ class StaffPerformanceService {
   /**
    * Analyze staff performance patterns and extract insights
    * @param {Array} staffPerformanceData - Raw staff performance data from API
+   * @param {string} locationID - Location ID (if specific location was requested)
    * @returns {Object} Analyzed staff performance insights
    */
-  analyzeStaffPerformance(staffPerformanceData) {
+  analyzeStaffPerformance(staffPerformanceData, locationID = null) {
     try {
       console.log("\n🔍 Analyzing staff performance patterns...");
       console.log(`📊 Total records to analyze: ${staffPerformanceData ? staffPerformanceData.length : 0}`);
@@ -202,15 +204,34 @@ class StaffPerformanceService {
       // Analyze staff performance by store/location
       let firstRecordLogged = false;
       staffPerformanceData.forEach((record, index) => {
-        // Handle different field name formats from API
-        const location = record.location || record.Location || record.store || record.storeName || 
-                        record.LocationID || record.locationName || 'Unknown';
+        // IMPORTANT: When locationID parameter is provided to this function,
+        // it means we fetched data for a specific location, so ALL records belong to that location
+        // (API doesn't include location field in individual records)
+        let location;
+        
+        if (locationID && locationID !== "0") {
+          // We requested a specific location - all records belong to it
+          location = getStoreNameFromLocationID(locationID);
+        } else {
+          // Try to get location ID from record (for backward compatibility)
+          const recordLocationID = record.locationID || record.LocationID || record.location_id || 
+                            record.locationId || null;
+          
+          if (recordLocationID) {
+            location = getStoreNameFromLocationID(recordLocationID);
+          } else {
+            // Fallback to direct location fields if no location ID
+            location = record.location || record.Location || record.store || record.storeName || 
+                      record.locationName || 'Unknown';
+          }
+        }
         
         // Log first record for debugging
         if (!firstRecordLogged) {
           console.log("\n📋 Processing first record:");
           console.log("   All fields:", Object.keys(record).join(', '));
-          console.log("   Detected location:", location);
+          console.log("   Requested Location ID:", locationID || 'All (0)');
+          console.log("   Mapped store name:", location);
           firstRecordLogged = true;
         }
         
@@ -468,8 +489,8 @@ class StaffPerformanceService {
         console.log("📊 Available keys:", result.data ? Object.keys(result.data).join(', ') : 'none');
       }
 
-      // Analyze the staff performance data
-      const analysis = this.analyzeStaffPerformance(dataArray);
+      // Analyze the staff performance data (pass location ID for proper store mapping)
+      const analysis = this.analyzeStaffPerformance(dataArray, locationID);
       
       return {
         success: true,
