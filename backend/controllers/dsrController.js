@@ -732,18 +732,27 @@ class DSRController {
     
     prompt += `2. "rootCauseCategory": Pick ONE from: "STAFF_PERFORMANCE", "CANCELLATIONS", "INVENTORY", "MARKETING", "COMBINATION"\n\n`;
     
-    prompt += `3. "immediate": Array of EXACTLY 4 URGENT actions for 24-48 hours:\n`;
-    prompt += `   - Keep it SHORT and ACTIONABLE (one line each)\n`;
-    prompt += `   - Include WHO and WHAT\n`;
-    prompt += `   Example: "Store manager: Call all ${cancellationCount} cancelled customers within 24h"\n\n`;
+    prompt += `3. "immediate": Array of EXACTLY 4 DATA-DRIVEN URGENT actions for 24-48 hours:\n`;
+    prompt += `   ⚠️ MUST BE SPECIFIC WITH NUMBERS FROM THE DATA ABOVE:\n`;
+    prompt += `   ❌ BAD: "Manager: Meet with staff today"\n`;
+    prompt += `   ✅ GOOD: "Manager: Review ${staffPerformanceData?.staffCount || 0} staff members' ${staffPerformanceData?.lossOfSale || 0} lost sales today"\n`;
+    prompt += `   ❌ BAD: "Call cancelled customers"\n`;
+    prompt += `   ✅ GOOD: "Call ${cancellationCount} cancelled customers about ${cancellationReasons[0]?.reason || 'issues'} (main reason: ${cancellationReasons[0]?.count || 0} cases)"\n`;
+    prompt += `   - Use ACTUAL NUMBERS and SPECIFIC REASONS from data\n`;
+    prompt += `   - Mention EXACT staff names if provided\n`;
+    prompt += `   - Reference SPECIFIC problems (conversion %, walk-ins count, cancellation reasons)\n\n`;
     
-    prompt += `4. "shortTerm": Array of EXACTLY 4 tactical actions for 1-2 weeks:\n`;
-    prompt += `   - Address the root cause directly\n`;
-    prompt += `   - Keep it SIMPLE (one line each)\n\n`;
+    prompt += `4. "shortTerm": Array of EXACTLY 4 CONCRETE tactical actions for 1-2 weeks:\n`;
+    prompt += `   - Address the EXACT root cause with measurable steps\n`;
+    prompt += `   ❌ BAD: "Improve staff training"\n`;
+    prompt += `   ✅ GOOD: "Train ${staffPerformanceData?.staffCount || 'all'} staff to improve conversion from ${staffPerformanceData?.conversionRate || 0}% to 65%"\n`;
+    prompt += `   - Include TARGET numbers (conversion %, sales targets, timeframes)\n\n`;
     
-    prompt += `5. "longTerm": Array of EXACTLY 4 strategic actions for 1-3 months:\n`;
-    prompt += `   - System-level improvements\n`;
-    prompt += `   - Keep it CLEAR (one line each)\n\n`;
+    prompt += `5. "longTerm": Array of EXACTLY 4 STRATEGIC actions for 1-3 months:\n`;
+    prompt += `   - System-level improvements with MEASURABLE goals\n`;
+    prompt += `   ❌ BAD: "Implement customer loyalty program"\n`;
+    prompt += `   ✅ GOOD: "Launch loyalty program targeting ${staffPerformanceData?.walkIns || 0} monthly walk-ins to reduce ${cancellationCount} cancellations"\n`;
+    prompt += `   - Include SPECIFIC metrics and targets\n\n`;
     
     prompt += `6. "expectedImpact": One sentence with specific numbers:\n`;
     if (problemType === 'BOTH') {
@@ -754,12 +763,16 @@ class DSRController {
       prompt += `   Example: "Reduce cancellations by 40% (${Math.round(cancellationCount * 0.4)} fewer), recover ₹500, improve retention in 2 months"\n\n`;
     }
     
-    prompt += `⚠️ CRITICAL REQUIREMENTS:\n`;
-    prompt += `• Keep actions SHORT (one line, maximum 12 words)\n`;
-    prompt += `• Make it EASY TO UNDERSTAND (no complex jargon)\n`;
-    prompt += `• Be SPECIFIC to the actual data above\n`;
-    prompt += `• Focus on the PRIMARY root cause\n`;
-    prompt += `• EXACTLY 3 actions per category (not more, not less)\n\n`;
+    prompt += `⚠️ CRITICAL REQUIREMENTS - ACTION PLANS MUST BE DATA-DRIVEN:\n`;
+    prompt += `• ALWAYS use ACTUAL NUMBERS from the data (walk-ins, conversion %, staff count, cancellation count)\n`;
+    prompt += `• ALWAYS reference SPECIFIC staff names when provided in data\n`;
+    prompt += `• ALWAYS mention EXACT cancellation reasons from the data\n`;
+    prompt += `• NEVER use generic phrases like "meet with staff" or "improve performance"\n`;
+    prompt += `• INSTEAD say: "Review John's 45% conversion (${staffPerformanceData?.bills || 0} bills from ${staffPerformanceData?.walkIns || 0} walk-ins)"\n`;
+    prompt += `• Include SPECIFIC METRICS: "Reduce loss of sale from ${staffPerformanceData?.lossOfSale || 0} to 5 by fixing size availability"\n`;
+    prompt += `• Make actions MEASURABLE and TRACKABLE\n`;
+    prompt += `• Keep each action under 20 words but PACKED with specifics\n`;
+    prompt += `• EXACTLY 4 actions per category (not more, not less)\n\n`;
     
     prompt += `Return ONLY valid JSON. No markdown, no explanations, no code blocks.`;
     
