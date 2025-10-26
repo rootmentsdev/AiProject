@@ -24,6 +24,12 @@ class DSRModel {
     // Combine both datasets
     const combinedData = `${southData.data}\n${northData.data}`;
     
+    // Combine walk-ins data from both clusters
+    const combinedWalkIns = {
+      ...southData.storeWalkIns,
+      ...northData.storeWalkIns
+    };
+    
     // Use the MOST RECENT date (North is usually more current)
     // This ensures we fetch cancellations for the correct date
     const sheetDate = northData.date || southData.date;
@@ -33,6 +39,7 @@ class DSRModel {
     console.log(`📅 South Cluster Date: ${southData.date}`);
     console.log(`📅 North Cluster Date: ${northData.date}`);
     console.log(`📅 Using date for cancellation/staff analysis: ${sheetDate}`);
+    console.log(`👥 Combined walk-ins for ${Object.keys(combinedWalkIns).length} stores`);
     
     // Store the extracted date for use in cancellation analysis
     this.sheetDate = sheetDate;
@@ -41,7 +48,8 @@ class DSRModel {
       data: combinedData,
       date: sheetDate,
       southDate: southData.date,
-      northDate: northData.date
+      northDate: northData.date,
+      storeWalkIns: combinedWalkIns // Add combined walk-ins to return value
     };
   }
 
@@ -68,6 +76,7 @@ class DSRModel {
     let headerFound = false;
     let dataRows = 0;
     let sheetDate = null;
+    const storeWalkIns = {}; // Store walk-in data by store name
     
     // Find the header row and extract store data
     for (let i = 0; i < lines.length; i++) {
@@ -104,6 +113,20 @@ class DSRModel {
             !storeName.includes('SUITOR') && 
             !storeName.includes('Store') &&
             !storeName.includes('Target')) {
+          
+          // Extract walk-ins (FTD) from the appropriate column
+          // For North Cluster: Column S (index 18)
+          // For South Cluster: Column O (index 14)
+          let walkInsFTD = 0;
+          if (clusterName === 'North Cluster') {
+            walkInsFTD = parseInt(columns[18] || '0'); // Column S
+          } else if (clusterName === 'South Cluster') {
+            walkInsFTD = parseInt(columns[14] || '0'); // Column O
+          }
+          
+          // Store walk-ins data
+          storeWalkIns[storeName] = walkInsFTD;
+          
           dsrData += `Store Data (${clusterName}): ${line}\n`;
           dataRows++;
         }
@@ -111,11 +134,13 @@ class DSRModel {
     }
 
     console.log(`📊 Processed ${dataRows} store data rows from ${clusterName}`);
+    console.log(`👥 Extracted walk-ins data:`, storeWalkIns);
     
     return {
       data: dsrData,
       date: sheetDate,
-      rowCount: dataRows
+      rowCount: dataRows,
+      storeWalkIns: storeWalkIns // Add walk-ins data to return value
     };
   }
 

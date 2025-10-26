@@ -3,7 +3,7 @@ import { Container, Row, Col, Card, Button, Spinner, Alert, Nav, Tab } from 'rea
 import DSRAnalysisDashboard from './components/DSRAnalysisDashboard';
 import AIInsights from './components/AIInsights';
 import CancellationDataView from './components/CancellationDataView';
-import IntegratedAnalysis from './components/IntegratedAnalysis';
+import IntegratedAnalysisSimple from './components/IntegratedAnalysisSimple';
 import StaffPerformanceView from './components/StaffPerformanceView';
 import './App.css';
 
@@ -263,7 +263,7 @@ function App() {
 
             {/* Integrated Analysis Tab */}
             <Tab.Pane eventKey="integrated">
-              <IntegratedAnalysis />
+              <IntegratedAnalysisSimple />
             </Tab.Pane>
           </Tab.Content>
         </Tab.Container>

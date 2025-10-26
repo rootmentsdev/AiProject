@@ -154,7 +154,7 @@ class DSRController {
         console.log(`📅 Fetching cancellations for date range: ${cancellationDateRange.DateFrom} to ${cancellationDateRange.DateTo}`);
       } else {
         // Fallback to single date
-        const { convertDSRDateToDateRange } = require('../utils/dateConverter');
+      const { convertDSRDateToDateRange } = require('../utils/dateConverter');
         const dsrSheetDate = dsrDataResult.date || "21/8/2025";
         cancellationDateRange = convertDSRDateToDateRange(dsrSheetDate);
         console.log(`📅 Fetching cancellations for: ${cancellationDateRange.DateFrom}`);
@@ -245,7 +245,8 @@ class DSRController {
       const actionPlans = await this.generateCEOActionPlans(
         comparisonResult, 
         cancellationResult,
-        staffPerformanceResult
+        staffPerformanceResult,
+        dsrDataResult.storeWalkIns // Pass walk-ins from DSR sheet
       );
       
       console.log('\n✅ INTEGRATED ANALYSIS COMPLETED SUCCESSFULLY!');
@@ -806,8 +807,87 @@ class DSRController {
   }
 
   // Generate CEO-level action plans
-  async generateCEOActionPlans(comparisonResult, cancellationResult, staffPerformanceResult) {
+  async generateCEOActionPlans(comparisonResult, cancellationResult, staffPerformanceResult, storeWalkIns = {}) {
     const { criticalStores, dsrOnlyStores, cancellationOnlyStores } = comparisonResult;
+    
+    // Log walk-ins data
+    console.log('\n👥 DSR Walk-Ins Data:');
+    for (const [storeName, walkIns] of Object.entries(storeWalkIns)) {
+      console.log(`   ${storeName}: ${walkIns} walk-ins`);
+    }
+    console.log('');
+    
+    // Helper function to recalculate staff performance with DSR walk-ins
+    const recalculateStaffPerformance = (storeName, staffPerfData) => {
+      if (!staffPerfData) {
+        console.log(`   ⚠️ ${storeName}: No staff performance data available`);
+        return null;
+      }
+      
+      // Get walk-ins from DSR sheet - try exact match first, then fuzzy match
+      let walkIns = storeWalkIns[storeName];
+      
+      if (!walkIns) {
+        // Try fuzzy matching if exact match fails
+        const normalizedStoreName = storeName.toUpperCase().replace(/[^A-Z]/g, '');
+        for (const [dsrStore, dsrWalkIns] of Object.entries(storeWalkIns)) {
+          const normalizedDsrStore = dsrStore.toUpperCase().replace(/[^A-Z]/g, '');
+          if (normalizedStoreName === normalizedDsrStore || 
+              normalizedStoreName.includes(normalizedDsrStore) || 
+              normalizedDsrStore.includes(normalizedStoreName)) {
+            walkIns = dsrWalkIns;
+            console.log(`   🔍 Fuzzy matched "${storeName}" to DSR store "${dsrStore}" (Walk-ins: ${walkIns})`);
+            break;
+          }
+        }
+      }
+      
+      // Default to 0 if still not found
+      walkIns = walkIns || 0;
+      
+      const bills = staffPerfData.bills || 0;
+      const lossOfSale = staffPerfData.lossOfSale || 0;
+      
+      // Calculate conversion rate: (Bills / Walk-ins) × 100
+      const conversionRate = walkIns > 0 ? ((bills / walkIns) * 100).toFixed(2) : 0;
+      
+      // Determine performance status based on conversion rate
+      let performanceStatus = 'UNKNOWN';
+      if (conversionRate >= 70) performanceStatus = 'EXCELLENT';
+      else if (conversionRate >= 60) performanceStatus = 'GOOD';
+      else if (conversionRate >= 50) performanceStatus = 'AVERAGE';
+      else if (conversionRate > 0) performanceStatus = 'POOR';
+      
+      console.log(`   📊 ${storeName}: Walk-ins=${walkIns}, Bills=${bills}, Conversion=${conversionRate}% (${performanceStatus})`);
+      
+      if (walkIns === 0) {
+        console.log(`   ⚠️ WARNING: ${storeName} has 0 walk-ins from DSR! Check store name matching.`);
+        console.log(`   Available DSR stores: ${Object.keys(storeWalkIns).join(', ')}`);
+      }
+      
+      return {
+        walkIns,
+        bills,
+        lossOfSale,
+        quantity: staffPerfData.quantity || 0,
+        conversionRate,
+        performanceStatus,
+        staffCount: staffPerfData.staffCount || 0,
+        staffIssues: staffPerfData.staffIssues || [],
+        staffDetails: (staffPerfData.staffDetails || []).map(staff => ({
+          name: staff.name,
+          bills: staff.bills,
+          lossOfSale: staff.lossOfSale,
+          quantity: staff.quantity,
+          // Calculate individual staff conversion (bills / (bills + loss))
+          conversionRate: (staff.bills && staff.lossOfSale) 
+            ? ((staff.bills / (staff.bills + staff.lossOfSale)) * 100).toFixed(2)
+            : 'N/A'
+        }))
+      };
+    };
+    
+    console.log('\n📊 Recalculating Staff Performance with DSR Walk-ins:');
     
     // Process ALL stores with cancellations (critical + cancellation-only)
     const allStoresWithPlans = [];
@@ -890,7 +970,7 @@ class DSRController {
         // Critical store: both DSR + Cancellations
       const dsrData = store.dsrData;
       const cancelData = store.cancellationData;
-      const staffPerfData = store.staffPerformanceData;
+      const staffPerfData = recalculateStaffPerformance(store.storeName, store.staffPerformanceData);
       
       const dsrIssues = dsrData.rootCauses || dsrData.issues || [dsrData.whyBadPerforming || 'Performance issues'];
       const dsrLoss = parseFloat(dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0) || 0;
@@ -960,14 +1040,14 @@ class DSRController {
         actionPlan,
         problemType: 'BOTH'
       });
-      
+    
       } else if (category === 'CANCELLATION_ONLY') {
         // Cancellation-only store: Good DSR but has cancellations
       const cancelData = store.cancellationData;
-      const staffPerfData = store.staffPerformanceData;
+      const staffPerfData = recalculateStaffPerformance(store.storeName, store.staffPerformanceData);
       const topCancellationReasons = cancelData.topReasons || [];
       
-      const severity = cancelData.totalCancellations > 5 ? 'HIGH' :
+      const severity = cancelData.totalCancellations > 5 ? 'HIGH' : 
                       cancelData.totalCancellations > 3 ? 'MEDIUM' : 'LOW';
       
       console.log(`\n✅ GOOD DSR STORE ANALYSIS: ${store.storeName}`);
@@ -1032,7 +1112,7 @@ class DSRController {
       } else if (category === 'DSR_ONLY') {
         // DSR-only store: Poor DSR but NO cancellations
       const dsrData = store;
-      const staffPerfData = store.staffPerformanceData;
+      const staffPerfData = recalculateStaffPerformance(store.storeName, store.staffPerformanceData);
       
       const dsrIssues = dsrData.rootCauses || dsrData.issues || [dsrData.whyBadPerforming || 'Performance issues'];
       const dsrLoss = parseFloat(dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0) || 0;

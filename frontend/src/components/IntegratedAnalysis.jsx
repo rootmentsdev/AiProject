@@ -591,7 +591,12 @@ const IntegratedAnalysis = () => {
                                       }>
                                         {store.staffPerformance.conversionRate}%
                                       </span>
+                                      {' '}
+                                      <small className="text-muted">
+                                        ({store.staffPerformance.bills} bills ÷ {store.staffPerformance.walkIns || 'N/A'} walk-ins)
+                                      </small>
                                     </li>
+                                    <li className="mb-1"><strong>Walk-ins (DSR):</strong> {store.staffPerformance.walkIns || 'N/A'}</li>
                                     <li className="mb-1"><strong>Bills:</strong> {store.staffPerformance.bills}</li>
                                     <li className="mb-1"><strong>Quantity:</strong> {store.staffPerformance.quantity || 'N/A'}</li>
                                     <li className="mb-1">
@@ -676,47 +681,58 @@ const IntegratedAnalysis = () => {
                                                     </tr>
                                                   </thead>
                                                   <tbody>
-                                                    {store.staffPerformance.staffDetails.map((staff, idx) => (
-                                                      <tr key={idx}>
-                                                        <td><strong>{staff.name}</strong></td>
-                                                        <td className="text-center">{staff.bills}</td>
-                                                        <td className="text-center">{staff.quantity || 0}</td>
-                                                        <td className="text-center">
-                                                          <Badge 
-                                                            bg={
-                                                              staff.conversionRate < 50 ? 'danger' :
-                                                              staff.conversionRate < 70 ? 'warning' : 'success'
-                                                            }
-                                                            className="px-2"
-                                                          >
-                                                            {staff.conversionRate.toFixed(1)}%
-                                                          </Badge>
-                                                        </td>
-                                                        <td className="text-center">
-                                                          <Badge bg={staff.lossOfSale > 5 ? 'danger' : 'secondary'}>
-                                                            {staff.lossOfSale}
-                                                          </Badge>
-                                                        </td>
-                                                        <td className="text-center">
-                                                          {staff.conversionRate < 50 ? (
-                                                            <span className="badge bg-danger">
-                                                              <i className="fas fa-exclamation-circle me-1"></i>
-                                                              Needs Training
-                                                            </span>
-                                                          ) : staff.conversionRate < 70 ? (
-                                                            <span className="badge bg-warning text-dark">
-                                                              <i className="fas fa-chart-line me-1"></i>
-                                                              Monitor
-                                                            </span>
-                                                          ) : (
-                                                            <span className="badge bg-success">
-                                                              <i className="fas fa-check-circle me-1"></i>
-                                                              Good
-                                                            </span>
-                                                          )}
-                                                        </td>
-                                                      </tr>
-                                                    ))}
+                                                    {store.staffPerformance.staffDetails.map((staff, idx) => {
+                                                      // Parse conversion rate (handle both string and number)
+                                                      const convRate = staff.conversionRate === 'N/A' ? null : parseFloat(staff.conversionRate);
+                                                      
+                                                      return (
+                                                        <tr key={idx}>
+                                                          <td><strong>{staff.name}</strong></td>
+                                                          <td className="text-center">{staff.bills}</td>
+                                                          <td className="text-center">{staff.quantity || 0}</td>
+                                                          <td className="text-center">
+                                                            {convRate !== null ? (
+                                                              <Badge 
+                                                                bg={
+                                                                  convRate < 50 ? 'danger' :
+                                                                  convRate < 70 ? 'warning' : 'success'
+                                                                }
+                                                                className="px-2"
+                                                              >
+                                                                {convRate.toFixed(1)}%
+                                                              </Badge>
+                                                            ) : (
+                                                              <small className="text-muted">N/A</small>
+                                                            )}
+                                                          </td>
+                                                          <td className="text-center">
+                                                            <Badge bg={staff.lossOfSale > 5 ? 'danger' : 'secondary'}>
+                                                              {staff.lossOfSale}
+                                                            </Badge>
+                                                          </td>
+                                                          <td className="text-center">
+                                                            {convRate !== null && convRate < 50 ? (
+                                                              <span className="badge bg-danger">
+                                                                <i className="fas fa-exclamation-circle me-1"></i>
+                                                                Needs Training
+                                                              </span>
+                                                            ) : convRate !== null && convRate < 70 ? (
+                                                              <span className="badge bg-warning text-dark">
+                                                                <i className="fas fa-chart-line me-1"></i>
+                                                                Monitor
+                                                              </span>
+                                                            ) : convRate !== null ? (
+                                                              <span className="badge bg-success">
+                                                                <i className="fas fa-check-circle me-1"></i>
+                                                                Good
+                                                              </span>
+                                                            ) : (
+                                                              <small className="text-muted">-</small>
+                                                            )}
+                                                          </td>
+                                                        </tr>
+                                                      );
+                                                    })}
                                                   </tbody>
                                                 </table>
                                               </div>
