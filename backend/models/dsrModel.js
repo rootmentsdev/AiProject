@@ -53,6 +53,29 @@ class DSRModel {
     };
   }
 
+  // Helper function to properly parse CSV lines (handles quoted values with commas)
+  parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current); // Push the last value
+    
+    return result;
+  }
+
   async fetchSingleSheetData(gid, clusterName) {
     const csvUrl = `https://docs.google.com/spreadsheets/d/${this.SHEET_ID}/export?format=csv&gid=${gid}`;
     console.log(`🔗 CSV Export URL (${clusterName}):`, csvUrl);
@@ -105,27 +128,36 @@ class DSRModel {
           !line.includes('Store,Target') &&
           line.split(',').length > 5) {
         
-        // Extract store name and key metrics
-        const columns = line.split(',');
-        const storeName = columns[1]?.trim(); // Store name is in column B
+        // Extract store name and key metrics using proper CSV parsing
+        const columns = this.parseCSVLine(line);
+        
+        // Store name is in Column 1 (index 1) - Column B in the sheet
+        const storeName = columns[1]?.trim();
         
         if (storeName && storeName !== '' && 
             !storeName.includes('SUITOR') && 
             !storeName.includes('Store') &&
             !storeName.includes('Target')) {
           
-          // Extract walk-ins (FTD) from the appropriate column
-          // For North Cluster: Column S (index 18)
-          // For South Cluster: Column O (index 14)
-          let walkInsFTD = 0;
-          if (clusterName === 'North Cluster') {
-            walkInsFTD = parseInt(columns[18] || '0'); // Column S
-          } else if (clusterName === 'South Cluster') {
-            walkInsFTD = parseInt(columns[14] || '0'); // Column O
-          }
+          // Walk-ins (FTD) column varies by cluster:
+          // - South Cluster: Column O (index 14) - rows O4 to O12
+          // - North Cluster: Column R (index 17) - rows R5 to R14
+          const walkInColumnIndex = clusterName === 'South Cluster' ? 14 : 17;
+          const walkInsStr = columns[walkInColumnIndex]?.replace(/,/g, '') || '';
+          const walkInsFTD = parseInt(walkInsStr || '0');
           
-          // Store walk-ins data
-          storeWalkIns[storeName] = walkInsFTD;
+          // Only store walk-ins if:
+          // 1. Store doesn't already have walk-ins data (avoid duplicates)
+          // 2. OR the new value is non-zero (update zeros with actual data)
+          if (!storeWalkIns[storeName] || walkInsFTD > 0) {
+            // DEBUG: Log extracted data
+            console.log(`👥 Extracted: Store="${storeName}", Walk-ins=${walkInsFTD} (${clusterName}, Column[${walkInColumnIndex}]="${columns[walkInColumnIndex]}")`);
+            
+            // Store walk-ins data
+            storeWalkIns[storeName] = walkInsFTD;
+          } else {
+            console.log(`⏭️  Skipped duplicate: Store="${storeName}", Walk-ins=${walkInsFTD} (already have: ${storeWalkIns[storeName]})`);
+          }
           
           dsrData += `Store Data (${clusterName}): ${line}\n`;
           dataRows++;
@@ -134,7 +166,13 @@ class DSRModel {
     }
 
     console.log(`📊 Processed ${dataRows} store data rows from ${clusterName}`);
-    console.log(`👥 Extracted walk-ins data:`, storeWalkIns);
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`👥 WALK-INS EXTRACTED FROM ${clusterName.toUpperCase()}:`);
+    console.log(`${'='.repeat(80)}`);
+    Object.entries(storeWalkIns).forEach(([store, walkIns]) => {
+      console.log(`   📍 ${store}: ${walkIns} walk-ins`);
+    });
+    console.log(`${'='.repeat(80)}\n`);
     
     return {
       data: dsrData,
@@ -228,6 +266,19 @@ class DSRModel {
           return parsed;
         } catch (parseError) {
           console.error("❌ JSON Parse Error from Groq:", parseError.message);
+          console.error("📄 Raw Response (first 500 chars):", raw.substring(0, 500));
+          console.error("🧹 Cleaned Response (first 500 chars):", cleanedResponse.substring(0, 500));
+          console.error("🔍 Error position:", parseError.message.match(/position (\d+)/)?.[1]);
+          
+          // Show the problematic area
+          const pos = parseInt(parseError.message.match(/position (\d+)/)?.[1] || '0');
+          if (pos > 0) {
+            const start = Math.max(0, pos - 50);
+            const end = Math.min(cleanedResponse.length, pos + 50);
+            console.error(`📍 Context around error (pos ${pos}):`);
+            console.error(`   "${cleanedResponse.substring(start, end)}"`);
+          }
+          
           throw parseError; // Re-throw to trigger Gemini fallback
         }
         
@@ -339,40 +390,53 @@ class DSRModel {
   cleanJSON(jsonString) {
     let cleaned = jsonString.trim();
     
+    // Remove markdown code blocks if present
+    cleaned = cleaned.replace(/```json\s*/g, '');
+    cleaned = cleaned.replace(/```\s*/g, '');
+    
     // Remove any text before the first {
-    if (!cleaned.startsWith('{')) {
-      const firstBrace = cleaned.indexOf('{');
+    if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
+      const firstBrace = cleaned.search(/[{\[]/);
       if (firstBrace !== -1) {
         cleaned = cleaned.substring(firstBrace);
       }
     }
     
-    // Remove any text after the last }
-    const lastBrace = cleaned.lastIndexOf('}');
+    // Remove any text after the last } or ]
+    const lastBrace = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
     if (lastBrace !== -1) {
       cleaned = cleaned.substring(0, lastBrace + 1);
     }
     
     // Fix common JSON syntax errors
-    // Fix missing quotes around percentage values
-    cleaned = cleaned.replace(/: (\d+\.?\d*%)/g, ': "$1"');
+    // 1. Fix missing quotes around percentage values
+    cleaned = cleaned.replace(/:\s*(\d+\.?\d*%)/g, ': "$1"');
     
-    // Fix missing quotes around string values that should be quoted
-    cleaned = cleaned.replace(/: ([^",}\]]+)(?=[,}])/g, (match, value) => {
-      // Only quote if it's not already a number, boolean, or null
-      if (!/^(true|false|null|\d+\.?\d*)$/.test(value.trim())) {
-        return `: "${value.trim()}"`;
+    // 2. Fix unquoted string values (but not numbers, booleans, or null)
+    cleaned = cleaned.replace(/:\s*([^",{\[\]}\s][^,}\]]*?)(\s*[,}\]])/g, (match, value, ending) => {
+      const trimmed = value.trim();
+      // Don't quote if it's already quoted, a number, boolean, null, or starts with { or [
+      if (trimmed.startsWith('"') || trimmed.startsWith('{') || trimmed.startsWith('[') || 
+          /^(true|false|null|-?\d+\.?\d*)$/.test(trimmed)) {
+        return match;
       }
-      return match;
+      // Quote the value and escape any quotes inside
+      const escaped = trimmed.replace(/"/g, '\\"');
+      return `: "${escaped}"${ending}`;
     });
     
-    // Fix trailing commas
+    // 3. Fix trailing commas
     cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
     
-    // Fix missing commas between properties
+    // 4. Fix missing commas between properties
     cleaned = cleaned.replace(/"\s*\n\s*"/g, '",\n"');
     cleaned = cleaned.replace(/(\d+)\s*\n\s*"/g, '$1,\n"');
     cleaned = cleaned.replace(/"\s*\n\s*(\d+)/g, '",\n$1');
+    cleaned = cleaned.replace(/}(\s*")/g, '},$1');
+    cleaned = cleaned.replace(/](\s*")/g, '],$1');
+    
+    // 5. Fix multiple consecutive commas
+    cleaned = cleaned.replace(/,+/g, ',');
     
     return cleaned;
   }

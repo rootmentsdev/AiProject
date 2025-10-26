@@ -1026,9 +1026,10 @@ class DSRController {
         },
         // Staff Performance metrics
         staffPerformance: staffPerfData ? {
+          walkIns: staffPerfData.walkIns || 0, // ✅ ADDED: Walk-ins from DSR
+          bills: staffPerfData.bills || 0,
           conversionRate: staffPerfData.conversionRate || 'N/A',
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
-          bills: staffPerfData.bills || 0,
           quantity: staffPerfData.quantity || 0,
           lossOfSale: staffPerfData.lossOfSale || 0,
           staffCount: staffPerfData.staffCount || 0,
@@ -1094,9 +1095,10 @@ class DSRController {
           abvValue: 'N/A'
         },
         staffPerformance: staffPerfData ? {
+          walkIns: staffPerfData.walkIns || 0, // ✅ ADDED: Walk-ins from DSR
+          bills: staffPerfData.bills || 0,
           conversionRate: staffPerfData.conversionRate || 'N/A',
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
-          bills: staffPerfData.bills || 0,
           quantity: staffPerfData.quantity || 0,
           lossOfSale: staffPerfData.lossOfSale || 0,
           staffCount: staffPerfData.staffCount || 0,
@@ -1164,9 +1166,10 @@ class DSRController {
           abvValue: dsrData.abvValue || 'N/A'
         },
         staffPerformance: staffPerfData ? {
+          walkIns: staffPerfData.walkIns || 0, // ✅ ADDED: Walk-ins from DSR
+          bills: staffPerfData.bills || 0,
           conversionRate: staffPerfData.conversionRate || 'N/A',
           performanceStatus: staffPerfData.performanceStatus || 'N/A',
-          bills: staffPerfData.bills || 0,
           quantity: staffPerfData.quantity || 0,
           lossOfSale: staffPerfData.lossOfSale || 0,
           staffCount: staffPerfData.staffCount || 0,
