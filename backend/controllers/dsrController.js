@@ -236,17 +236,52 @@ class DSRController {
         staffPerformanceResult = { success: false, analysis: { storeWisePerformance: {} } };
       }
       
-      // Step 4: Compare and Match Stores (DSR, Cancellation, Staff Performance)
-      console.log("📊 Step 4: Matching and comparing stores with all data sources...");
+      // Step 4: Get Attendance Data for DSR Date
+      console.log("📊 Step 4: Fetching attendance data for DSR date...");
+      const attendanceModel = require('../models/attendanceModel');
+      let attendanceResult = { success: false, data: null };
+      
+      try {
+        const attendanceData = await attendanceModel.fetchAttendanceData(dsrDataResult.date);
+        attendanceResult = {
+          success: true,
+          data: attendanceData.data,
+          month: attendanceData.month,
+          year: attendanceData.year,
+          dsrDay: attendanceData.currentDay
+        };
+        
+        console.log(`✅ Attendance data fetched for ${attendanceData.month} ${attendanceData.year}`);
+        console.log(`📅 DSR Date Day: ${attendanceData.currentDay}`);
+        console.log(`👥 Total Employees: ${attendanceData.data.employees.length}`);
+        
+        // Analyze attendance issues on DSR date
+        const attendanceIssues = this.analyzeAttendanceForDSRDate(
+          attendanceData.data.employees, 
+          attendanceData.currentDay,
+          allUniqueStores
+        );
+        
+        console.log(`⚠️  Attendance Issues Found: ${attendanceIssues.totalIssues}`);
+        attendanceResult.issues = attendanceIssues;
+        
+      } catch (attendanceError) {
+        console.error("❌ Attendance data fetch failed:", attendanceError.message);
+        console.log("⚠️ Continuing analysis without attendance data");
+      }
+      
+      // Step 5: Compare and Match Stores (DSR, Cancellation, Staff Performance, Attendance)
+      console.log("📊 Step 5: Matching and comparing stores with all data sources...");
       const comparisonResult = this.compareStores(dsrAnalysis, cancellationResult, staffPerformanceResult);
       
-      // Step 5: Generate AI-Powered CEO Action Plans
-      console.log("\n🤖 Step 5: Generating AI-powered action plans...");
+      // Step 6: Generate AI-Powered CEO Action Plans
+      console.log("\n🤖 Step 6: Generating AI-powered action plans...");
       const actionPlans = await this.generateCEOActionPlans(
         comparisonResult, 
         cancellationResult,
         staffPerformanceResult,
-        dsrDataResult.storeWalkIns // Pass walk-ins from DSR sheet
+        dsrDataResult.storeWalkIns, // Pass walk-ins from DSR sheet
+        attendanceResult // Pass attendance data
       );
       
       console.log('\n✅ INTEGRATED ANALYSIS COMPLETED SUCCESSFULLY!');
@@ -260,6 +295,71 @@ class DSRController {
         error: `Integrated analysis failed: ${error.message}` 
       });
     }
+  }
+
+  // Analyze attendance issues on DSR date for each store
+  analyzeAttendanceForDSRDate(employees, dsrDay, storeNames) {
+    const dayKey = String(dsrDay); // Convert day to string key
+    const storeIssues = {};
+    let totalIssues = 0;
+    
+    console.log(`\n📅 Analyzing Attendance for Day ${dsrDay}:`);
+    
+    employees.forEach(emp => {
+      const branch = emp.branch || emp.Branch || 'UNKNOWN';
+      const name = emp.employee_name || emp.name || 'Unknown';
+      const designation = emp.designation || emp.Designation || 'N/A';
+      const attendanceCode = emp[dayKey]?.trim().toUpperCase() || 'N/A';
+      
+      // Check for attendance issues (Absent, LOP, Leave, etc.)
+      const isIssue = ['A', 'LOP', 'L', 'AL', 'H/D'].includes(attendanceCode);
+      
+      if (isIssue) {
+        if (!storeIssues[branch]) {
+          storeIssues[branch] = {
+            storeName: branch,
+            absentEmployees: [],
+            lopEmployees: [],
+            leaveEmployees: [],
+            halfDayEmployees: [],
+            totalIssues: 0
+          };
+        }
+        
+        const issue = {
+          name,
+          designation,
+          status: attendanceCode
+        };
+        
+        if (attendanceCode === 'A') {
+          storeIssues[branch].absentEmployees.push(issue);
+        } else if (attendanceCode === 'LOP') {
+          storeIssues[branch].lopEmployees.push(issue);
+        } else if (attendanceCode === 'L' || attendanceCode === 'AL') {
+          storeIssues[branch].leaveEmployees.push(issue);
+        } else if (attendanceCode === 'H/D') {
+          storeIssues[branch].halfDayEmployees.push(issue);
+        }
+        
+        storeIssues[branch].totalIssues++;
+        totalIssues++;
+        
+        console.log(`   ⚠️  ${branch} - ${name} (${designation}): ${attendanceCode}`);
+      }
+    });
+    
+    // Add summary
+    console.log(`\n📊 Attendance Issues Summary:`);
+    for (const [branch, issues] of Object.entries(storeIssues)) {
+      console.log(`   ${branch}: ${issues.totalIssues} issues (${issues.absentEmployees.length}A, ${issues.lopEmployees.length}LOP, ${issues.leaveEmployees.length}L, ${issues.halfDayEmployees.length}H/D)`);
+    }
+    
+    return {
+      storeWiseIssues: storeIssues,
+      totalIssues,
+      dsrDay
+    };
   }
 
   // Fuzzy match store names
@@ -585,10 +685,75 @@ class DSRController {
           });
         }
         
+        // Add attendance issues if available
+        if (staffPerformanceData.attendance && staffPerformanceData.attendance.totalIssues > 0) {
+          prompt += `\n🚨 ATTENDANCE ISSUES ON DSR DATE (${dsrData?.walkIns || 'Day'} Walk-ins Day):\n`;
+          prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          prompt += `⚠️ CRITICAL: ${staffPerformanceData.attendance.totalIssues} staff members were NOT working on DSR date!\n\n`;
+          
+          if (staffPerformanceData.attendance.absentCount > 0) {
+            prompt += `• ABSENT (A): ${staffPerformanceData.attendance.absentCount} employees\n`;
+            staffPerformanceData.attendance.absentEmployees.forEach(emp => {
+              prompt += `   - ${emp.name} (${emp.designation})\n`;
+            });
+          }
+          
+          if (staffPerformanceData.attendance.lopCount > 0) {
+            prompt += `• LOSS OF PAY (LOP): ${staffPerformanceData.attendance.lopCount} employees\n`;
+            staffPerformanceData.attendance.lopEmployees.forEach(emp => {
+              prompt += `   - ${emp.name} (${emp.designation})\n`;
+            });
+          }
+          
+          if (staffPerformanceData.attendance.leaveCount > 0) {
+            prompt += `• ON LEAVE (L/AL): ${staffPerformanceData.attendance.leaveCount} employees\n`;
+            staffPerformanceData.attendance.leaveEmployees.forEach(emp => {
+              prompt += `   - ${emp.name} (${emp.designation})\n`;
+            });
+          }
+          
+          if (staffPerformanceData.attendance.halfDayCount > 0) {
+            prompt += `• HALF DAY (H/D): ${staffPerformanceData.attendance.halfDayCount} employees\n`;
+            staffPerformanceData.attendance.halfDayEmployees.forEach(emp => {
+              prompt += `   - ${emp.name} (${emp.designation})\n`;
+            });
+          }
+          
+          const totalMissingStaff = staffPerformanceData.attendance.absentCount + 
+                                   staffPerformanceData.attendance.lopCount + 
+                                   staffPerformanceData.attendance.leaveCount;
+          
+          const staffingLevel = staffPerformanceData.staffCount - totalMissingStaff;
+          prompt += `\n⚠️ STAFFING IMPACT:\n`;
+          prompt += `   • Expected Staff: ${staffPerformanceData.staffCount}\n`;
+          prompt += `   • Actually Working: ${staffingLevel} (${totalMissingStaff} missing)\n`;
+          prompt += `   • Staffing Level: ${staffingLevel > 0 ? ((staffingLevel / staffPerformanceData.staffCount) * 100).toFixed(0) : 0}% capacity\n`;
+        }
+        
         prompt += `\n🔍 ROOT CAUSE ANALYSIS:\n`;
+        
+        // Check if attendance is a factor
+        if (staffPerformanceData.attendance && staffPerformanceData.attendance.totalIssues > 0) {
+          const totalMissing = staffPerformanceData.attendance.absentCount + 
+                              staffPerformanceData.attendance.lopCount + 
+                              staffPerformanceData.attendance.leaveCount;
+          
+          if (totalMissing >= 2) {
+            prompt += `🚨 ATTENDANCE IS A MAJOR ROOT CAUSE!\n`;
+            prompt += `   • ${totalMissing} staff members were absent/LOP/leave on DSR date\n`;
+            prompt += `   • This likely caused the high loss of sale (${staffPerformanceData.lossOfSale})\n`;
+            prompt += `   • Insufficient staff to handle ${staffPerformanceData.walkIns || 'walk-in'} customers\n`;
+            prompt += `   • PRIMARY ISSUE: Poor staffing on DSR date, not staff performance\n\n`;
+          } else if (totalMissing === 1) {
+            prompt += `⚠️ ATTENDANCE is a CONTRIBUTING factor (1 staff missing)\n\n`;
+          }
+        }
+        
         if (parseFloat(staffPerformanceData.conversionRate) < 60) {
-          prompt += `⚠️ STAFF PERFORMANCE is a MAJOR CONTRIBUTOR to low DSR performance.\n`;
-          prompt += `The store's ${staffPerformanceData.conversionRate}% conversion rate indicates staff training/motivation issues.\n`;
+          if (!staffPerformanceData.attendance || staffPerformanceData.attendance.totalIssues === 0) {
+            prompt += `⚠️ STAFF PERFORMANCE is a MAJOR CONTRIBUTOR to low DSR performance.\n`;
+            prompt += `The store's ${staffPerformanceData.conversionRate}% conversion rate indicates staff training/motivation issues.\n`;
+          }
         } else {
           prompt += `Staff performance is acceptable (${staffPerformanceData.conversionRate}%).\n`;
           prompt += `Low DSR performance likely caused by other factors (inventory, pricing, competition).\n`;
@@ -820,7 +985,7 @@ class DSRController {
   }
 
   // Generate CEO-level action plans
-  async generateCEOActionPlans(comparisonResult, cancellationResult, staffPerformanceResult, storeWalkIns = {}) {
+  async generateCEOActionPlans(comparisonResult, cancellationResult, staffPerformanceResult, storeWalkIns = {}, attendanceResult = {}) {
     const { criticalStores, dsrOnlyStores, cancellationOnlyStores } = comparisonResult;
     
     // Log walk-ins data
@@ -830,11 +995,26 @@ class DSRController {
     }
     console.log('');
     
-    // Helper function to recalculate staff performance with DSR walk-ins
+    // Log attendance data
+    if (attendanceResult.success && attendanceResult.issues) {
+      console.log('\n👥 Attendance Issues on DSR Date:');
+      for (const [storeName, issues] of Object.entries(attendanceResult.issues.storeWiseIssues)) {
+        console.log(`   ${storeName}: ${issues.totalIssues} issues`);
+      }
+      console.log('');
+    }
+    
+    // Helper function to recalculate staff performance with DSR walk-ins and attendance
     const recalculateStaffPerformance = (storeName, staffPerfData) => {
       if (!staffPerfData) {
         console.log(`   ⚠️ ${storeName}: No staff performance data available`);
         return null;
+      }
+      
+      // Get attendance issues for this store
+      let attendanceIssues = null;
+      if (attendanceResult.success && attendanceResult.issues) {
+        attendanceIssues = attendanceResult.issues.storeWiseIssues[storeName] || null;
       }
       
       // Get walk-ins from DSR sheet - try exact match first, then fuzzy match
@@ -896,7 +1076,19 @@ class DSRController {
           conversionRate: (staff.bills && staff.lossOfSale) 
             ? ((staff.bills / (staff.bills + staff.lossOfSale)) * 100).toFixed(2)
             : 'N/A'
-        }))
+        })),
+        // Add attendance issues for this store
+        attendance: attendanceIssues ? {
+          totalIssues: attendanceIssues.totalIssues,
+          absentCount: attendanceIssues.absentEmployees.length,
+          lopCount: attendanceIssues.lopEmployees.length,
+          leaveCount: attendanceIssues.leaveEmployees.length,
+          halfDayCount: attendanceIssues.halfDayEmployees.length,
+          absentEmployees: attendanceIssues.absentEmployees,
+          lopEmployees: attendanceIssues.lopEmployees,
+          leaveEmployees: attendanceIssues.leaveEmployees,
+          halfDayEmployees: attendanceIssues.halfDayEmployees
+        } : null
       };
     };
     

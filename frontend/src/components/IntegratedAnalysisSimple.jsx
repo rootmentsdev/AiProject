@@ -423,6 +423,92 @@ const IntegratedAnalysisSimple = () => {
                               ))}
                             </div>
                           )}
+
+                          {/* Attendance Issues */}
+                          {store.staffPerformance.attendance && store.staffPerformance.attendance.totalIssues > 0 && (
+                            <div style={{ 
+                              marginTop: '16px',
+                              padding: '12px 16px',
+                              backgroundColor: '#fef2f2',
+                              border: '1px solid #fecaca',
+                              borderRadius: '6px'
+                            }}>
+                              <div style={{ 
+                                fontSize: '13px', 
+                                fontWeight: '600', 
+                                color: '#dc2626',
+                                marginBottom: '8px'
+                              }}>
+                                🚨 Attendance Issues on DSR Date
+                              </div>
+                              
+                              <div style={{ fontSize: '13px', color: '#7f1d1d', marginBottom: '8px' }}>
+                                <strong>{store.staffPerformance.attendance.totalIssues} staff member(s)</strong> were not working:
+                              </div>
+
+                              {store.staffPerformance.attendance.absentCount > 0 && (
+                                <div style={{ marginBottom: '6px' }}>
+                                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#dc2626' }}>
+                                    ❌ ABSENT ({store.staffPerformance.attendance.absentCount}):
+                                  </div>
+                                  {store.staffPerformance.attendance.absentEmployees.map((emp, idx) => (
+                                    <div key={idx} style={{ fontSize: '12px', color: '#7f1d1d', marginLeft: '16px' }}>
+                                      • {emp.name} ({emp.designation})
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {store.staffPerformance.attendance.lopCount > 0 && (
+                                <div style={{ marginBottom: '6px' }}>
+                                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#dc2626' }}>
+                                    💸 LOSS OF PAY ({store.staffPerformance.attendance.lopCount}):
+                                  </div>
+                                  {store.staffPerformance.attendance.lopEmployees.map((emp, idx) => (
+                                    <div key={idx} style={{ fontSize: '12px', color: '#7f1d1d', marginLeft: '16px' }}>
+                                      • {emp.name} ({emp.designation})
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {store.staffPerformance.attendance.leaveCount > 0 && (
+                                <div style={{ marginBottom: '6px' }}>
+                                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#f59e0b' }}>
+                                    🏖️ ON LEAVE ({store.staffPerformance.attendance.leaveCount}):
+                                  </div>
+                                  {store.staffPerformance.attendance.leaveEmployees.map((emp, idx) => (
+                                    <div key={idx} style={{ fontSize: '12px', color: '#78350f', marginLeft: '16px' }}>
+                                      • {emp.name} ({emp.designation})
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {store.staffPerformance.attendance.halfDayCount > 0 && (
+                                <div style={{ marginBottom: '6px' }}>
+                                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#f59e0b' }}>
+                                    ⏰ HALF DAY ({store.staffPerformance.attendance.halfDayCount}):
+                                  </div>
+                                  {store.staffPerformance.attendance.halfDayEmployees.map((emp, idx) => (
+                                    <div key={idx} style={{ fontSize: '12px', color: '#78350f', marginLeft: '16px' }}>
+                                      • {emp.name} ({emp.designation})
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div style={{ 
+                                marginTop: '8px',
+                                paddingTop: '8px',
+                                borderTop: '1px solid #fecaca',
+                                fontSize: '12px',
+                                color: '#7f1d1d'
+                              }}>
+                                ⚠️ <strong>Impact:</strong> Insufficient staff likely caused loss of sale and poor conversion
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
