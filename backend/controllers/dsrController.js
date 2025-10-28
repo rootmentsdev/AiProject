@@ -1206,8 +1206,9 @@ class DSRController {
       .filter(s => s.problemType === 'BOTH' || s.problemType === 'DSR_ONLY')
       .reduce((sum, s) => sum + s.dsrLoss, 0);
     
-    const allCancellations = Object.values(cancellationResult?.analysis?.storeWiseProblems || {})
-      .reduce((sum, store) => sum + (store.totalCancellations || 0), 0);
+    // ✅ FIX: Use totalCancellations from analysis (which is from filtered data)
+    // This counts cancellations ONLY for the DSR date, not all time
+    const allCancellations = cancellationResult?.analysis?.totalCancellations || 0;
     
     const estimatedRecovery = Math.round(totalLoss * 0.7);
     

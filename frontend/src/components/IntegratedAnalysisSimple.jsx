@@ -48,11 +48,15 @@ const IntegratedAnalysisSimple = () => {
       sum + (s.totalCancellations || 0), 0
     );
     
-    const totalRevenueLoss = analysisData.allStores.reduce((sum, s) => 
-      sum + (parseFloat(s.dsrLoss) || 0), 0
+    const totalBills = analysisData.allStores.reduce((sum, s) => 
+      sum + (s.staffPerformance?.bills || 0), 0
+    );
+    
+    const totalLossOfSale = analysisData.allStores.reduce((sum, s) => 
+      sum + (s.staffPerformance?.lossOfSale || 0), 0
     );
 
-    return { critical, needsAttention, good, totalCancellations, totalRevenueLoss };
+    return { critical, needsAttention, good, totalCancellations, totalBills, totalLossOfSale };
   };
 
   // Get priority level
@@ -191,13 +195,23 @@ const IntegratedAnalysisSimple = () => {
             </div>
           </Card>
 
-          {/* Revenue Loss */}
+          {/* Total Bills */}
           <Card style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px' }}>
-            <div style={{ fontSize: '32px', fontWeight: '700', color: '#2563eb' }}>
-              ₹{Math.round(summary.totalRevenueLoss).toLocaleString()}
+            <div style={{ fontSize: '32px', fontWeight: '700', color: '#10b981' }}>
+              {summary.totalBills}
             </div>
             <div style={{ fontSize: '14px', color: '#6c757d', marginTop: '4px' }}>
-              Potential Revenue Loss
+              Total Bills
+            </div>
+          </Card>
+
+          {/* Total Loss of Sale */}
+          <Card style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px' }}>
+            <div style={{ fontSize: '32px', fontWeight: '700', color: '#ef4444' }}>
+              {summary.totalLossOfSale}
+            </div>
+            <div style={{ fontSize: '14px', color: '#6c757d', marginTop: '4px' }}>
+              Total Loss of Sale
             </div>
           </Card>
         </div>
