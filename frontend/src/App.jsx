@@ -5,6 +5,7 @@ import AIInsights from './components/AIInsights';
 import CancellationDataView from './components/CancellationDataView';
 import IntegratedAnalysisSimple from './components/IntegratedAnalysisSimple';
 import StaffPerformanceView from './components/StaffPerformanceView';
+import AttendanceView from './components/AttendanceView';
 import './App.css';
 
 function App() {
@@ -123,6 +124,12 @@ function App() {
                     <Nav.Link eventKey="integrated" className="border-0">
                       <i className="fas fa-brain me-2"></i>
                       Action Plan
+                    </Nav.Link>
+                  </Nav.Item>
+                  <Nav.Item>
+                    <Nav.Link eventKey="attendance" className="border-0">
+                      <i className="fas fa-clipboard-check me-2"></i>
+                      Attendance
                     </Nav.Link>
                   </Nav.Item>
                 </Nav>
@@ -264,6 +271,11 @@ function App() {
             {/* Integrated Analysis Tab */}
             <Tab.Pane eventKey="integrated">
               <IntegratedAnalysisSimple />
+            </Tab.Pane>
+
+            {/* Attendance Tab */}
+            <Tab.Pane eventKey="attendance">
+              <AttendanceView />
             </Tab.Pane>
           </Tab.Content>
         </Tab.Container>
