@@ -55,10 +55,12 @@ const dsrRoutes = require('./routes/dsrRoutes');
 const promptRoutes = require('./routes/promptRoutes');
 const dailyResponseRoutes = require('./routes/dailyResponseRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
+const lossOfSaleRoutes = require('./routes/lossOfSaleRoutes');
 app.use('/api', dsrRoutes);
 app.use('/api', promptRoutes);
 app.use('/api', dailyResponseRoutes);
 app.use('/api', attendanceRoutes);
+app.use('/api', lossOfSaleRoutes);
 
 // Start server
 const PORT = 5000;

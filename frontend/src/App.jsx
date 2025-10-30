@@ -6,6 +6,7 @@ import CancellationDataView from './components/CancellationDataView';
 import IntegratedAnalysisSimple from './components/IntegratedAnalysisSimple';
 import StaffPerformanceView from './components/StaffPerformanceView';
 import AttendanceView from './components/AttendanceView';
+import LossOfSaleView from './components/LossOfSaleView';
 import './App.css';
 
 function App() {
@@ -130,6 +131,12 @@ function App() {
                     <Nav.Link eventKey="attendance" className="border-0">
                       <i className="fas fa-clipboard-check me-2"></i>
                       Attendance
+                    </Nav.Link>
+                  </Nav.Item>
+                  <Nav.Item>
+                    <Nav.Link eventKey="lossofsale" className="border-0">
+                      <i className="fas fa-exclamation-triangle me-2"></i>
+                      Loss of Sale
                     </Nav.Link>
                   </Nav.Item>
                 </Nav>
@@ -276,6 +283,11 @@ function App() {
             {/* Attendance Tab */}
             <Tab.Pane eventKey="attendance">
               <AttendanceView />
+            </Tab.Pane>
+
+            {/* Loss of Sale Tab */}
+            <Tab.Pane eventKey="lossofsale">
+              <LossOfSaleView />
             </Tab.Pane>
           </Tab.Content>
         </Tab.Container>

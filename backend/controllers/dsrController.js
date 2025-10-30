@@ -183,13 +183,16 @@ class DSRController {
       
       let staffPerformanceResult = { success: true, analysis: { storeWisePerformance: {} } };
       
+      // ✅ FIX: Declare allUniqueStores outside try blocks so it's accessible everywhere
+      let allUniqueStores = new Set();
+      
       try {
         // Get all unique store names from BOTH DSR analysis AND cancellation analysis
         const dsrStores = dsrAnalysis.problemStores || dsrAnalysis.badPerformingStores || [];
         const cancellationStoreNames = Object.keys(cancellationResult?.analysis?.storeWiseProblems || {});
         
         // Combine and deduplicate store names
-        const allUniqueStores = new Set([
+        allUniqueStores = new Set([
           ...dsrStores.map(s => s.storeName || s.name),
           ...cancellationStoreNames
         ]);
@@ -270,18 +273,62 @@ class DSRController {
         console.log("⚠️ Continuing analysis without attendance data");
       }
       
-      // Step 5: Compare and Match Stores (DSR, Cancellation, Staff Performance, Attendance)
-      console.log("📊 Step 5: Matching and comparing stores with all data sources...");
+      // Step 5: Get Loss of Sale Data for DSR Date
+      console.log("📊 Step 5: Fetching loss of sale data for DSR date...");
+      const lossOfSaleModel = require('../models/lossOfSaleModel');
+      let lossOfSaleResult = { success: false, data: [], groupedByStore: {} };
+      
+      try {
+        // Fetch all stores loss of sale data
+        const allLossData = await lossOfSaleModel.fetchAllStoresData();
+        
+        // Filter by DSR date
+        const filteredLossData = lossOfSaleModel.filterByDate(allLossData.data, dsrDataResult.date);
+        
+        // Group by store
+        const groupedLoss = lossOfSaleModel.groupByStore(filteredLossData);
+        
+        // Analyze reasons
+        const reasonAnalysis = lossOfSaleModel.analyzeReasons(filteredLossData);
+        
+        lossOfSaleResult = {
+          success: true,
+          data: filteredLossData,
+          groupedByStore: groupedLoss,
+          totalEntries: filteredLossData.length,
+          reasonAnalysis: reasonAnalysis,
+          date: dsrDataResult.date
+        };
+        
+        console.log(`✅ Loss of Sale data fetched: ${filteredLossData.length} entries for ${dsrDataResult.date}`);
+        console.log(`📊 Stores with loss of sale: ${Object.keys(groupedLoss).length}`);
+        
+        // Log top reasons
+        if (reasonAnalysis.length > 0) {
+          console.log(`🔍 Top loss reasons:`);
+          reasonAnalysis.slice(0, 3).forEach((r, idx) => {
+            console.log(`   ${idx + 1}. ${r.reason}: ${r.count} cases`);
+          });
+        }
+        
+      } catch (lossError) {
+        console.error("❌ Loss of Sale data fetch failed:", lossError.message);
+        console.log("⚠️ Continuing analysis without loss of sale data");
+      }
+      
+      // Step 6: Compare stores to identify critical, DSR-only, and cancellation-only stores
+      console.log("\n📊 Step 6: Comparing stores to identify problem categories...");
       const comparisonResult = this.compareStores(dsrAnalysis, cancellationResult, staffPerformanceResult);
       
-      // Step 6: Generate AI-Powered CEO Action Plans
-      console.log("\n🤖 Step 6: Generating AI-powered action plans...");
+      // Step 7: Generate AI-Powered CEO Action Plans (with Loss of Sale data)
+      console.log("\n🤖 Step 7: Generating AI-powered action plans...");
       const actionPlans = await this.generateCEOActionPlans(
-        comparisonResult, 
+        comparisonResult, // ✅ FIX: Pass comparisonResult instead of dsrAnalysis
         cancellationResult,
         staffPerformanceResult,
         dsrDataResult.storeWalkIns, // Pass walk-ins from DSR sheet
-        attendanceResult // Pass attendance data
+        attendanceResult, // Pass attendance data
+        lossOfSaleResult // Pass loss of sale data
       );
       
       console.log('\n✅ INTEGRATED ANALYSIS COMPLETED SUCCESSFULLY!');
@@ -404,6 +451,22 @@ class DSRController {
     const criticalStores = [];
     const dsrOnlyStores = [];
     const cancellationOnlyStores = [];
+    
+    // ✅ FIX: Add defensive checks for data structure
+    if (!dsrAnalysis || typeof dsrAnalysis !== 'object') {
+      console.error('❌ Invalid dsrAnalysis structure:', dsrAnalysis);
+      return {
+        criticalStores: [],
+        dsrOnlyStores: [],
+        cancellationOnlyStores: [],
+        summary: {
+          totalDSRStores: 0,
+          totalCancellationStores: 0,
+          totalStaffPerformanceStores: 0,
+          criticalCount: 0
+        }
+      };
+    }
     
     // Handle both field names: problemStores (old) and badPerformingStores (new)
     const dsrStores = dsrAnalysis.problemStores || dsrAnalysis.badPerformingStores || [];
@@ -730,7 +793,89 @@ class DSRController {
           prompt += `   • Staffing Level: ${staffingLevel > 0 ? ((staffingLevel / staffPerformanceData.staffCount) * 100).toFixed(0) : 0}% capacity\n`;
         }
         
+        // Add loss of sale information if available
+        if (staffPerformanceData.lossOfSaleDetails && staffPerformanceData.lossOfSaleDetails.totalLost > 0) {
+          prompt += `\n📉 LOSS OF SALE DETAILS (${staffPerformanceData.lossOfSaleDetails.totalLost} Lost Customers):\n`;
+          prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          prompt += `⚠️ CRITICAL: ${staffPerformanceData.lossOfSaleDetails.totalLost} customers walked away without buying!\n\n`;
+          
+          // Show top reasons
+          if (staffPerformanceData.lossOfSaleDetails.topReasons && staffPerformanceData.lossOfSaleDetails.topReasons.length > 0) {
+            prompt += `📋 Top Reasons for Lost Sales:\n`;
+            staffPerformanceData.lossOfSaleDetails.topReasons.forEach((reason, idx) => {
+              prompt += `   ${idx + 1}. ${reason.reason}: ${reason.count} cases\n`;
+            });
+          }
+          
+          // Show what customers wanted (from "Other Comments" column H)
+          const customerNeeds = staffPerformanceData.lossOfSaleDetails.entries
+            .filter(entry => entry.otherComments && entry.otherComments.trim())
+            .slice(0, 5);
+          
+          if (customerNeeds.length > 0) {
+            prompt += `\n🎯 WHAT CUSTOMERS WANTED (But we didn't have):\n`;
+            customerNeeds.forEach((entry, idx) => {
+              prompt += `   ${idx + 1}. ${entry.otherComments}`;
+              if (entry.productUnavailability && entry.productUnavailability.trim()) {
+                prompt += ` [Missing: ${entry.productUnavailability}]`;
+              }
+              prompt += `\n`;
+            });
+          }
+          
+          // Show product unavailability details (from column I)
+          const productGaps = staffPerformanceData.lossOfSaleDetails.entries
+            .filter(entry => entry.productUnavailability && entry.productUnavailability.trim())
+            .slice(0, 5);
+          
+          if (productGaps.length > 0) {
+            prompt += `\n❌ PRODUCT UNAVAILABILITY ISSUES:\n`;
+            productGaps.forEach((entry, idx) => {
+              prompt += `   ${idx + 1}. ${entry.productUnavailability} (Customer: ${entry.customerName})\n`;
+            });
+          }
+          
+          prompt += `\n💰 IMPACT OF LOST SALES:\n`;
+          prompt += `   • ${staffPerformanceData.lossOfSaleDetails.totalLost} customers lost = Potential revenue loss\n`;
+          prompt += `   • Conversion rate impacted: ${staffPerformanceData.conversionRate}%\n`;
+          prompt += `   • These losses are PREVENTABLE with proper inventory and product variety!\n`;
+        }
+        
         prompt += `\n🔍 ROOT CAUSE ANALYSIS:\n`;
+        
+        // Check if loss of sale is a factor
+        if (staffPerformanceData.lossOfSaleDetails && staffPerformanceData.lossOfSaleDetails.totalLost > 0) {
+          const lossPercentage = ((staffPerformanceData.lossOfSaleDetails.totalLost / (staffPerformanceData.walkIns || 1)) * 100).toFixed(1);
+          
+          if (staffPerformanceData.lossOfSaleDetails.totalLost >= 3 || parseFloat(lossPercentage) > 15) {
+            prompt += `🚨 LOSS OF SALE IS A MAJOR ROOT CAUSE!\n`;
+            prompt += `   • ${staffPerformanceData.lossOfSaleDetails.totalLost} customers lost (${lossPercentage}% of walk-ins)\n`;
+            prompt += `   • PRIMARY ISSUES:\n`;
+            
+            // Check for product unavailability
+            const productGaps = staffPerformanceData.lossOfSaleDetails.entries
+              .filter(entry => entry.productUnavailability && entry.productUnavailability.trim()).length;
+            
+            if (productGaps > 0) {
+              prompt += `      - INVENTORY GAP: ${productGaps} cases of product unavailability\n`;
+              prompt += `      - Customers are ASKING for products we don't stock!\n`;
+            }
+            
+            // Check for common reasons
+            if (staffPerformanceData.lossOfSaleDetails.topReasons) {
+              const sizeIssues = staffPerformanceData.lossOfSaleDetails.topReasons.filter(r => 
+                r.reason.toLowerCase().includes('size')).reduce((sum, r) => sum + r.count, 0);
+              
+              if (sizeIssues > 0) {
+                prompt += `      - SIZE AVAILABILITY: ${sizeIssues} cases of size not available\n`;
+              }
+            }
+            
+            prompt += `   • THIS IS PREVENTABLE: Stock the products customers are asking for!\n\n`;
+          } else if (staffPerformanceData.lossOfSaleDetails.totalLost > 0) {
+            prompt += `⚠️ LOSS OF SALE is a CONTRIBUTING factor (${staffPerformanceData.lossOfSaleDetails.totalLost} customers lost)\n\n`;
+          }
+        }
         
         // Check if attendance is a factor
         if (staffPerformanceData.attendance && staffPerformanceData.attendance.totalIssues > 0) {
@@ -741,7 +886,7 @@ class DSRController {
           if (totalMissing >= 2) {
             prompt += `🚨 ATTENDANCE IS A MAJOR ROOT CAUSE!\n`;
             prompt += `   • ${totalMissing} staff members were absent/LOP/leave on DSR date\n`;
-            prompt += `   • This likely caused the high loss of sale (${staffPerformanceData.lossOfSale})\n`;
+            prompt += `   • This likely caused the high loss of sale (${staffPerformanceData.lossOfSale?.totalLost || 'some customers lost'})\n`;
             prompt += `   • Insufficient staff to handle ${staffPerformanceData.walkIns || 'walk-in'} customers\n`;
             prompt += `   • PRIMARY ISSUE: Poor staffing on DSR date, not staff performance\n\n`;
           } else if (totalMissing === 1) {
@@ -750,13 +895,28 @@ class DSRController {
         }
         
         if (parseFloat(staffPerformanceData.conversionRate) < 60) {
-          if (!staffPerformanceData.attendance || staffPerformanceData.attendance.totalIssues === 0) {
+          // Check if low conversion is due to loss of sale (inventory) or staff performance
+          const hasInventoryIssues = staffPerformanceData.lossOfSaleDetails && staffPerformanceData.lossOfSaleDetails.totalLost > 2;
+          const hasAttendanceIssues = staffPerformanceData.attendance && staffPerformanceData.attendance.totalIssues > 0;
+          
+          if (hasInventoryIssues) {
+            prompt += `⚠️ Low conversion (${staffPerformanceData.conversionRate}%) is PRIMARILY due to INVENTORY GAPS.\n`;
+            prompt += `Staff are trying, but we don't have what customers want!\n`;
+          } else if (hasAttendanceIssues) {
+            prompt += `⚠️ Low conversion (${staffPerformanceData.conversionRate}%) is PRIMARILY due to POOR STAFFING.\n`;
+            prompt += `Not enough staff to handle customer traffic!\n`;
+          } else {
             prompt += `⚠️ STAFF PERFORMANCE is a MAJOR CONTRIBUTOR to low DSR performance.\n`;
             prompt += `The store's ${staffPerformanceData.conversionRate}% conversion rate indicates staff training/motivation issues.\n`;
           }
         } else {
           prompt += `Staff performance is acceptable (${staffPerformanceData.conversionRate}%).\n`;
-          prompt += `Low DSR performance likely caused by other factors (inventory, pricing, competition).\n`;
+          
+          if (staffPerformanceData.lossOfSaleDetails && staffPerformanceData.lossOfSaleDetails.totalLost > 0) {
+            prompt += `However, ${staffPerformanceData.lossOfSaleDetails.totalLost} customers were lost due to inventory/product issues.\n`;
+          } else {
+            prompt += `Low DSR performance likely caused by other factors (pricing, competition).\n`;
+          }
         }
       }
       
@@ -903,6 +1063,16 @@ class DSRController {
     prompt += `   ✅ GOOD: "Manager: Review ${staffPerformanceData?.staffCount || 0} staff members' ${staffPerformanceData?.lossOfSale || 0} lost sales today"\n`;
     prompt += `   ❌ BAD: "Call cancelled customers"\n`;
     prompt += `   ✅ GOOD: "Call ${cancellationCount} cancelled customers about ${cancellationReasons[0]?.reason || 'issues'} (main reason: ${cancellationReasons[0]?.count || 0} cases)"\n`;
+    
+    // Add loss of sale specific requirements
+    if (staffPerformanceData?.lossOfSaleDetails && staffPerformanceData.lossOfSaleDetails.totalLost > 0) {
+      prompt += `   \n   🚨 LOSS OF SALE REQUIREMENT:\n`;
+      prompt += `   • At least 1-2 immediate actions MUST address the ${staffPerformanceData.lossOfSaleDetails.totalLost} lost customers\n`;
+      prompt += `   • Reference the SPECIFIC products customers wanted (from "What Customers Wanted" section)\n`;
+      prompt += `   • Example: "Check inventory for 'grey suit' and 'double breasted suit' requested by lost customers"\n`;
+      prompt += `   • Example: "Call ${staffPerformanceData.lossOfSaleDetails.totalLost} lost customers to understand their needs"\n`;
+    }
+    
     prompt += `   - Use ACTUAL NUMBERS and SPECIFIC REASONS from data\n`;
     prompt += `   - Mention EXACT staff names if provided\n`;
     prompt += `   - Reference SPECIFIC problems (conversion %, walk-ins count, cancellation reasons)\n\n`;
@@ -911,19 +1081,45 @@ class DSRController {
     prompt += `   - Address the EXACT root cause with measurable steps\n`;
     prompt += `   ❌ BAD: "Improve staff training"\n`;
     prompt += `   ✅ GOOD: "Train ${staffPerformanceData?.staffCount || 'all'} staff to improve conversion from ${staffPerformanceData?.conversionRate || 0}% to 65%"\n`;
+    
+    // Add loss of sale specific requirements
+    if (staffPerformanceData?.lossOfSaleDetails && staffPerformanceData.lossOfSaleDetails.totalLost > 0) {
+      prompt += `   \n   🚨 LOSS OF SALE REQUIREMENT:\n`;
+      prompt += `   • At least 1-2 short-term actions MUST reduce the ${staffPerformanceData.lossOfSaleDetails.totalLost} lost customers\n`;
+      prompt += `   • Stock the SPECIFIC products customers wanted (reference "What Customers Wanted" section)\n`;
+      prompt += `   • Set MEASURABLE targets: "Reduce loss of sale from ${staffPerformanceData.lossOfSaleDetails.totalLost} to 0 by stocking requested products within 2 weeks"\n`;
+      prompt += `   • Address product unavailability issues mentioned in the data\n`;
+    }
+    
     prompt += `   - Include TARGET numbers (conversion %, sales targets, timeframes)\n\n`;
     
     prompt += `5. "longTerm": Array of EXACTLY 4 STRATEGIC actions for 1-3 months:\n`;
     prompt += `   - System-level improvements with MEASURABLE goals\n`;
     prompt += `   ❌ BAD: "Implement customer loyalty program"\n`;
     prompt += `   ✅ GOOD: "Launch loyalty program targeting ${staffPerformanceData?.walkIns || 0} monthly walk-ins to reduce ${cancellationCount} cancellations"\n`;
+    
+    // Add loss of sale specific requirements
+    if (staffPerformanceData?.lossOfSaleDetails && staffPerformanceData.lossOfSaleDetails.totalLost > 0) {
+      prompt += `   \n   🚨 LOSS OF SALE REQUIREMENT:\n`;
+      prompt += `   • At least 1 long-term action MUST create a system to prevent future loss of sales\n`;
+      prompt += `   • Example: "Implement inventory management system tracking customer requests to prevent ${staffPerformanceData.lossOfSaleDetails.totalLost} lost sales monthly"\n`;
+      prompt += `   • Example: "Create customer needs database from ${staffPerformanceData.lossOfSaleDetails.totalLost} lost customer records to guide procurement"\n`;
+      prompt += `   • Focus on PREVENTING similar losses in the future\n`;
+    }
+    
     prompt += `   - Include SPECIFIC metrics and targets\n\n`;
     
     prompt += `6. "expectedImpact": One sentence with specific numbers:\n`;
     if (problemType === 'BOTH') {
-      prompt += `   Example: "Reduce cancellations by 40% (${Math.round(cancellationCount * 0.4)} fewer), recover ₹${Math.round(dsrLoss * 0.6).toLocaleString()}, improve conversion to 70% in 2 months"\n\n`;
+      const lossOfSaleImpact = staffPerformanceData?.lossOfSaleDetails?.totalLost > 0 
+        ? `, reduce loss of sale from ${staffPerformanceData.lossOfSaleDetails.totalLost} to 0` 
+        : '';
+      prompt += `   Example: "Reduce cancellations by 40% (${Math.round(cancellationCount * 0.4)} fewer), recover ₹${Math.round(dsrLoss * 0.6).toLocaleString()}${lossOfSaleImpact}, improve conversion to 70% in 2 months"\n\n`;
     } else if (problemType === 'DSR_ONLY') {
-      prompt += `   Example: "Improve conversion to 70%, recover ₹${Math.round(dsrLoss * 0.6).toLocaleString()}, increase ABV by 20% in 2 months"\n\n`;
+      const lossOfSaleImpact = staffPerformanceData?.lossOfSaleDetails?.totalLost > 0 
+        ? `, reduce loss of sale from ${staffPerformanceData.lossOfSaleDetails.totalLost} to 0` 
+        : '';
+      prompt += `   Example: "Improve conversion to 70%, recover ₹${Math.round(dsrLoss * 0.6).toLocaleString()}${lossOfSaleImpact}, increase ABV by 20% in 2 months"\n\n`;
     } else {
       prompt += `   Example: "Reduce cancellations by 40% (${Math.round(cancellationCount * 0.4)} fewer), recover ₹500, improve retention in 2 months"\n\n`;
     }
@@ -932,6 +1128,17 @@ class DSRController {
     prompt += `• ALWAYS use ACTUAL NUMBERS from the data (walk-ins, conversion %, staff count, cancellation count)\n`;
     prompt += `• ALWAYS reference SPECIFIC staff names when provided in data\n`;
     prompt += `• ALWAYS mention EXACT cancellation reasons from the data\n`;
+    
+    // Add loss of sale specific requirements
+    if (staffPerformanceData?.lossOfSaleDetails && staffPerformanceData.lossOfSaleDetails.totalLost > 0) {
+      prompt += `\n🚨 LOSS OF SALE CRITICAL REQUIREMENTS:\n`;
+      prompt += `• MUST address the ${staffPerformanceData.lossOfSaleDetails.totalLost} lost customers in your action plans\n`;
+      prompt += `• MUST reference SPECIFIC products from "What Customers Wanted" section\n`;
+      prompt += `• MUST create actions to STOCK those specific products\n`;
+      prompt += `• MUST include measurable targets to REDUCE loss of sale to 0\n`;
+      prompt += `• Example: "Stock 'grey suit' and 'double breasted suit' requested by ${staffPerformanceData.lossOfSaleDetails.totalLost} lost customers within 5 days"\n\n`;
+    }
+    
     prompt += `• NEVER use generic phrases like "meet with staff" or "improve performance"\n`;
     prompt += `• INSTEAD say: "Review John's 45% conversion (${staffPerformanceData?.bills || 0} bills from ${staffPerformanceData?.walkIns || 0} walk-ins)"\n`;
     prompt += `• Include SPECIFIC METRICS: "Reduce loss of sale from ${staffPerformanceData?.lossOfSale || 0} to 5 by fixing size availability"\n`;
@@ -984,8 +1191,24 @@ class DSRController {
     }
   }
 
+  // Helper function to get top loss of sale reasons for a store
+  getTopLossReasons(lossEntries) {
+    if (!lossEntries || lossEntries.length === 0) return [];
+    
+    const reasonCounts = {};
+    lossEntries.forEach(entry => {
+      const reason = entry.reason || 'Unknown';
+      reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+    });
+    
+    return Object.entries(reasonCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([reason, count]) => ({ reason, count }));
+  }
+
   // Generate CEO-level action plans
-  async generateCEOActionPlans(comparisonResult, cancellationResult, staffPerformanceResult, storeWalkIns = {}, attendanceResult = {}) {
+  async generateCEOActionPlans(comparisonResult, cancellationResult, staffPerformanceResult, storeWalkIns = {}, attendanceResult = {}, lossOfSaleResult = {}) {
     const { criticalStores, dsrOnlyStores, cancellationOnlyStores } = comparisonResult;
     
     // Log walk-ins data
@@ -1000,6 +1223,25 @@ class DSRController {
       console.log('\n👥 Attendance Issues on DSR Date:');
       for (const [storeName, issues] of Object.entries(attendanceResult.issues.storeWiseIssues)) {
         console.log(`   ${storeName}: ${issues.totalIssues} issues`);
+      }
+      console.log('');
+    }
+    
+    // Log loss of sale data
+    if (lossOfSaleResult.success && lossOfSaleResult.groupedByStore) {
+      console.log('\n📉 Loss of Sale Data on DSR Date:');
+      for (const [storeName, lossEntries] of Object.entries(lossOfSaleResult.groupedByStore)) {
+        console.log(`   ${storeName}: ${lossEntries.length} lost customers`);
+        // Log top reasons for this store
+        const storeReasons = lossOfSaleResult.data
+          .filter(entry => entry.storeName === storeName)
+          .map(entry => entry.reason);
+        const reasonCounts = {};
+        storeReasons.forEach(r => reasonCounts[r] = (reasonCounts[r] || 0) + 1);
+        const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0];
+        if (topReason) {
+          console.log(`      Top reason: ${topReason[0]} (${topReason[1]} cases)`);
+        }
       }
       console.log('');
     }
@@ -1061,7 +1303,7 @@ class DSRController {
       return {
         walkIns,
         bills,
-        lossOfSale,
+        lossOfSale,  // ✅ Keep this as simple number for frontend display
         quantity: staffPerfData.quantity || 0,
         conversionRate,
         performanceStatus,
@@ -1077,6 +1319,94 @@ class DSRController {
             ? ((staff.bills / (staff.bills + staff.lossOfSale)) * 100).toFixed(2)
             : 'N/A'
         })),
+        // ✅ FIX: Use fuzzy matching to find loss of sale data for this store
+        lossOfSaleDetails: (() => {
+          if (!lossOfSaleResult.success || !lossOfSaleResult.groupedByStore) return null;
+          
+          // Try direct match first
+          if (lossOfSaleResult.groupedByStore[storeName]) {
+            return {
+              totalLost: lossOfSaleResult.groupedByStore[storeName].length,
+              entries: lossOfSaleResult.groupedByStore[storeName],
+              topReasons: this.getTopLossReasons(lossOfSaleResult.groupedByStore[storeName])
+            };
+          }
+          
+          // Store aliases for matching (same as lossOfSaleModel.js)
+          const storeAliases = {
+            'TRIVANDRUM': ['trivandrum', 'tvm', 'thiruvananthapuram', 'sg'],
+            'MG ROAD': ['mgroad', 'mg', 'ernakulam'],
+            'EDAPALLY': ['edapally', 'edappally', 'edapal'],
+            'PERUMBAVOOR': ['perumbavoor', 'perumbavur', 'pmvr'],
+            'KOTTAYAM': ['kottayam', 'ktm'],
+            'THRISSUR': ['thrissur', 'trichur', 'tcr', 'trissur'],
+            'PALAKKAD': ['palakkad', 'palghat', 'pkd'],
+            'CHAVAKKAD': ['chavakkad', 'chavakad', 'chvkd'],
+            'EDAPPAL': ['edappal', 'edapal'],
+            'MANJERI': ['manjeri', 'manjery', 'mjr'],
+            'PERINTHALMANNA': ['perinthalmanna', 'pmna', 'pma'],
+            'KOTTAKKAL': ['kottakkal', 'kottakal', 'ktk'],
+            'CALICUT': ['calicut', 'kozhikode', 'clct', 'clt'],
+            'VADAKARA': ['vadakara', 'vadakkara', 'vdk', 'vatakara'],
+            'KALPETTA': ['kalpetta', 'kalpeta', 'klp'],
+            'KANNUR': ['kannur', 'cannanore', 'knr']
+          };
+          
+          const normalizedInput = storeName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+          
+          // Try alias-based matching
+          for (const [lossStoreName, lossEntries] of Object.entries(lossOfSaleResult.groupedByStore)) {
+            const normalizedLoss = lossStoreName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+            
+            // Direct normalized match
+            if (normalizedInput === normalizedLoss) {
+              console.log(`   🔍 Fuzzy matched loss of sale: "${storeName}" → "${lossStoreName}" (${lossEntries.length} lost customers)`);
+              return {
+                totalLost: lossEntries.length,
+                entries: lossEntries,
+                topReasons: this.getTopLossReasons(lossEntries)
+              };
+            }
+            
+            // Check aliases
+            for (const [canonicalName, aliases] of Object.entries(storeAliases)) {
+              const matchesInput = aliases.some(alias => 
+                normalizedInput === alias || normalizedInput.includes(alias) || alias.includes(normalizedInput)
+              );
+              const matchesLoss = aliases.some(alias => 
+                normalizedLoss === alias || normalizedLoss.includes(alias) || alias.includes(normalizedLoss)
+              );
+              
+              if (matchesInput && matchesLoss) {
+                console.log(`   🔍 Fuzzy matched loss of sale (via alias): "${storeName}" → "${lossStoreName}" (${lossEntries.length} lost customers)`);
+                return {
+                  totalLost: lossEntries.length,
+                  entries: lossEntries,
+                  topReasons: this.getTopLossReasons(lossEntries)
+                };
+              }
+            }
+          }
+          
+          // Fallback: Try substring matching
+          const normalizeStoreName = (name) => name.toUpperCase().replace(/[^A-Z]/g, '');
+          const normalizedInputUpper = normalizeStoreName(storeName);
+          
+          for (const [lossStoreName, lossEntries] of Object.entries(lossOfSaleResult.groupedByStore)) {
+            const normalizedLoss = normalizeStoreName(lossStoreName);
+            if (normalizedInputUpper.includes(normalizedLoss) || 
+                normalizedLoss.includes(normalizedInputUpper)) {
+              console.log(`   🔍 Fuzzy matched loss of sale (substring): "${storeName}" → "${lossStoreName}" (${lossEntries.length} lost customers)`);
+              return {
+                totalLost: lossEntries.length,
+                entries: lossEntries,
+                topReasons: this.getTopLossReasons(lossEntries)
+              };
+            }
+          }
+          
+          return null;
+        })(),
         // Add attendance issues for this store
         attendance: attendanceIssues ? {
           totalIssues: attendanceIssues.totalIssues,
@@ -1097,17 +1427,18 @@ class DSRController {
     // Process ALL stores with cancellations (critical + cancellation-only)
     const allStoresWithPlans = [];
     
-    // TEMPORARY: Limit to 4 worst stores to avoid API token limits
-    const TEMP_STORE_LIMIT = 4;
+    // TEMPORARY: Limit AI-generated plans to 4 worst stores, but show ALL stores with fallback plans
+    const AI_PLAN_LIMIT = 4;
     const totalStores = criticalStores.length + cancellationOnlyStores.length + dsrOnlyStores.length;
     
     console.log(`\n${'🤖'.repeat(40)}`);
-    console.log(`🤖 STARTING AI-POWERED ACTION PLAN GENERATION`);
+    console.log(`🤖 STARTING ACTION PLAN GENERATION FOR ALL STORES`);
     console.log(`🤖 Total Stores Found: ${totalStores}`);
     console.log(`🤖 Critical Stores (Poor DSR + Cancellations): ${criticalStores.length}`);
     console.log(`🤖 Cancellation-Only Stores (Good DSR + Cancellations): ${cancellationOnlyStores.length}`);
     console.log(`🤖 DSR-Only Stores (Poor DSR + No Cancellations): ${dsrOnlyStores.length}`);
-    console.log(`⚠️  TEMPORARY LIMIT: Processing only TOP 4 WORST stores to avoid API token limits`);
+    console.log(`💡 AI-POWERED PLANS: Top ${AI_PLAN_LIMIT} worst stores`);
+    console.log(`📋 RULE-BASED PLANS: Remaining ${totalStores - AI_PLAN_LIMIT} stores`);
     console.log(`${'🤖'.repeat(40)}\n`);
     
     // Helper function to calculate "badness score" (higher = worse)
@@ -1155,19 +1486,29 @@ class DSRController {
     });
     console.log('');
     
-    // TEMPORARY: Select only the TOP 4 WORST stores regardless of category
-    const top4WorstStores = allStoresWithScores.slice(0, TEMP_STORE_LIMIT);
+    // Select the TOP N WORST stores for AI-generated plans
+    const topWorstStores = allStoresWithScores.slice(0, AI_PLAN_LIMIT);
+    const remainingStores = allStoresWithScores.slice(AI_PLAN_LIMIT);
     
-    console.log(`📊 Processing TOP ${TEMP_STORE_LIMIT} WORST stores:\n`);
-    top4WorstStores.forEach((store, idx) => {
+    console.log(`📊 AI-POWERED PLANS: Processing TOP ${AI_PLAN_LIMIT} WORST stores:\n`);
+    topWorstStores.forEach((store, idx) => {
       const score = calculateBadnessScore(store);
       console.log(`   ${idx + 1}. ${store.storeName} (Score: ${score.toFixed(2)}, Category: ${store.category})`);
     });
     console.log('');
     
-    // Process TOP 4 WORST stores (regardless of category)
-    for (let idx = 0; idx < top4WorstStores.length; idx++) {
-      const store = top4WorstStores[idx];
+    if (remainingStores.length > 0) {
+      console.log(`📋 RULE-BASED PLANS: Processing ${remainingStores.length} remaining stores:\n`);
+      remainingStores.forEach((store, idx) => {
+        const score = calculateBadnessScore(store);
+        console.log(`   ${idx + 1}. ${store.storeName} (Score: ${score.toFixed(2)}, Category: ${store.category})`);
+      });
+      console.log('');
+    }
+    
+    // Process TOP N WORST stores with AI-generated plans (regardless of category)
+    for (let idx = 0; idx < topWorstStores.length; idx++) {
+      const store = topWorstStores[idx];
       const category = store.category;
       
       // Process based on category
@@ -1207,7 +1548,7 @@ class DSRController {
       console.log(`✅ Action plan generated for ${store.storeName}\n`);
       
       // Add delay between AI calls
-      if (idx < top4WorstStores.length - 1) {
+      if (idx < topWorstStores.length - 1) {
         console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
@@ -1239,7 +1580,9 @@ class DSRController {
           lossOfSale: staffPerfData.lossOfSale || 0,
           staffCount: staffPerfData.staffCount || 0,
           staffIssues: staffPerfData.staffIssues || [],
-          staffDetails: staffPerfData.staffDetails || []
+          staffDetails: staffPerfData.staffDetails || [],
+          lossOfSaleDetails: staffPerfData.lossOfSaleDetails || null, // ✅ ADDED: Loss of sale details
+          attendance: staffPerfData.attendance || null // ✅ ADDED: Attendance data
         } : null,
         totalCancellations: cancelData.totalCancellations,
         cancellationReasons: topCancellationReasons.slice(0, 3),
@@ -1278,7 +1621,7 @@ class DSRController {
       console.log(`✅ AI action plan generated for ${store.storeName} (Good DSR)\n`);
       
       // Add delay between AI calls
-      if (idx < top4WorstStores.length - 1) {
+      if (idx < topWorstStores.length - 1) {
         console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
@@ -1308,7 +1651,9 @@ class DSRController {
           lossOfSale: staffPerfData.lossOfSale || 0,
           staffCount: staffPerfData.staffCount || 0,
           staffIssues: staffPerfData.staffIssues || [],
-          staffDetails: staffPerfData.staffDetails || []
+          staffDetails: staffPerfData.staffDetails || [],
+          lossOfSaleDetails: staffPerfData.lossOfSaleDetails || null, // ✅ ADDED: Loss of sale details
+          attendance: staffPerfData.attendance || null // ✅ ADDED: Attendance data
         } : null,
         totalCancellations: cancelData.totalCancellations,
         cancellationReasons: topCancellationReasons.slice(0, 3),
@@ -1349,7 +1694,7 @@ class DSRController {
       console.log(`✅ AI action plan generated for ${store.storeName} (DSR-only)\n`);
       
       // Add delay between AI calls
-      if (idx < top4WorstStores.length - 1) {
+      if (idx < topWorstStores.length - 1) {
         console.log(`⏳ Waiting 2 seconds before next AI call to avoid rate limits...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
@@ -1379,7 +1724,9 @@ class DSRController {
           lossOfSale: staffPerfData.lossOfSale || 0,
           staffCount: staffPerfData.staffCount || 0,
           staffIssues: staffPerfData.staffIssues || [],
-          staffDetails: staffPerfData.staffDetails || []
+          staffDetails: staffPerfData.staffDetails || [],
+          lossOfSaleDetails: staffPerfData.lossOfSaleDetails || null, // ✅ ADDED: Loss of sale details
+          attendance: staffPerfData.attendance || null // ✅ ADDED: Attendance data
         } : null,
         totalCancellations: 0,
         cancellationReasons: [],
@@ -1388,6 +1735,185 @@ class DSRController {
       });
       }
     }
+    
+    // ✅ NEW: Process REMAINING stores with FALLBACK/RULE-BASED plans
+    console.log(`\n📋 Generating RULE-BASED plans for ${remainingStores.length} remaining stores...\n`);
+    
+    for (let idx = 0; idx < remainingStores.length; idx++) {
+      const store = remainingStores[idx];
+      const category = store.category;
+      
+      console.log(`   ${idx + 1}/${remainingStores.length}: Generating fallback plan for ${store.storeName} (${category})...`);
+      
+      // Process based on category (similar to above but with fallback plans)
+      if (category === 'CRITICAL') {
+        const dsrData = store.dsrData;
+        const cancelData = store.cancellationData;
+        const staffPerfData = recalculateStaffPerformance(store.storeName, store.staffPerformanceData);
+        
+        const dsrIssues = dsrData.rootCauses || dsrData.issues || [dsrData.whyBadPerforming || 'Performance issues'];
+        const dsrLoss = parseFloat(dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0) || 0;
+        const topCancellationReasons = cancelData.topReasons || [];
+        
+        const severity = dsrLoss > 250 && cancelData.totalCancellations > 5 ? 'CRITICAL' :
+                        dsrLoss > 150 || cancelData.totalCancellations > 3 ? 'HIGH' : 'MEDIUM';
+        
+        // Use fallback plan instead of AI
+        const actionPlan = this.generateActionPlanForStore(
+          store.storeName,
+          dsrIssues,
+          topCancellationReasons,
+          dsrLoss,
+          cancelData.totalCancellations,
+          'BOTH'
+        );
+        
+        allStoresWithPlans.push({
+          storeName: store.storeName,
+          cancellationStoreName: store.cancellationStoreName,
+          severity,
+          dsrStatus: 'POOR',
+          dsrIssues,
+          dsrLoss,
+          dsrMetrics: {
+            conversionRate: dsrData.conversionRate || 'N/A',
+            billsPerformance: dsrData.billsPerformance || 'N/A',
+            quantityPerformance: dsrData.quantityPerformance || 'N/A',
+            walkIns: dsrData.walkIns || 'N/A',
+            lossOfSale: dsrData.lossOfSale || 'N/A',
+            absValue: dsrData.absValue || 'N/A',
+            abvValue: dsrData.abvValue || 'N/A'
+          },
+          staffPerformance: staffPerfData ? {
+            walkIns: staffPerfData.walkIns || 0,
+            bills: staffPerfData.bills || 0,
+            conversionRate: staffPerfData.conversionRate || 'N/A',
+            performanceStatus: staffPerfData.performanceStatus || 'N/A',
+            quantity: staffPerfData.quantity || 0,
+            lossOfSale: staffPerfData.lossOfSale || 0,
+            staffCount: staffPerfData.staffCount || 0,
+            staffIssues: staffPerfData.staffIssues || [],
+            staffDetails: staffPerfData.staffDetails || [],
+            lossOfSaleDetails: staffPerfData.lossOfSaleDetails || null,
+            attendance: staffPerfData.attendance || null
+          } : null,
+          totalCancellations: cancelData.totalCancellations,
+          cancellationReasons: topCancellationReasons.slice(0, 3),
+          actionPlan,
+          problemType: 'BOTH',
+          usedFallbackPlan: true // Mark as fallback plan
+        });
+        
+      } else if (category === 'CANCELLATION_ONLY') {
+        const cancelData = store.cancellationData;
+        const staffPerfData = recalculateStaffPerformance(store.storeName, store.staffPerformanceData);
+        const topCancellationReasons = cancelData.topReasons || [];
+        
+        const severity = cancelData.totalCancellations > 5 ? 'HIGH' : 
+                        cancelData.totalCancellations > 3 ? 'MEDIUM' : 'LOW';
+        
+        const actionPlan = this.generateActionPlanForStore(
+          store.storeName,
+          [],
+          topCancellationReasons,
+          0,
+          cancelData.totalCancellations,
+          'CANCELLATION_ONLY'
+        );
+        
+        allStoresWithPlans.push({
+          storeName: store.storeName,
+          cancellationStoreName: store.storeName,
+          severity,
+          dsrStatus: 'GOOD',
+          dsrIssues: ['DSR performance is good - needs slight improvements'],
+          dsrLoss: 0,
+          dsrMetrics: {
+            conversionRate: 'Meeting targets',
+            billsPerformance: 'Good',
+            quantityPerformance: 'Good',
+            walkIns: 'N/A',
+            lossOfSale: 'Minimal',
+            absValue: 'N/A',
+            abvValue: 'N/A'
+          },
+          staffPerformance: staffPerfData ? {
+            walkIns: staffPerfData.walkIns || 0,
+            bills: staffPerfData.bills || 0,
+            conversionRate: staffPerfData.conversionRate || 'N/A',
+            performanceStatus: staffPerfData.performanceStatus || 'N/A',
+            quantity: staffPerfData.quantity || 0,
+            lossOfSale: staffPerfData.lossOfSale || 0,
+            staffCount: staffPerfData.staffCount || 0,
+            staffIssues: staffPerfData.staffIssues || [],
+            staffDetails: staffPerfData.staffDetails || [],
+            lossOfSaleDetails: staffPerfData.lossOfSaleDetails || null,
+            attendance: staffPerfData.attendance || null
+          } : null,
+          totalCancellations: cancelData.totalCancellations,
+          cancellationReasons: topCancellationReasons.slice(0, 3),
+          actionPlan,
+          problemType: 'CANCELLATION_ONLY',
+          usedFallbackPlan: true
+        });
+        
+      } else if (category === 'DSR_ONLY') {
+        const dsrData = store;
+        const staffPerfData = recalculateStaffPerformance(store.storeName, store.staffPerformanceData);
+        
+        const dsrIssues = dsrData.rootCauses || dsrData.issues || [dsrData.whyBadPerforming || 'Performance issues'];
+        const dsrLoss = parseFloat(dsrData.revenueLoss || dsrData.totalLoss || dsrData.absValue || 0) || 0;
+        
+        const severity = dsrLoss > 250 ? 'HIGH' : dsrLoss > 150 ? 'MEDIUM' : 'LOW';
+        
+        const actionPlan = this.generateActionPlanForStore(
+          store.storeName,
+          dsrIssues,
+          [],
+          dsrLoss,
+          0,
+          'DSR_ONLY'
+        );
+        
+        allStoresWithPlans.push({
+          storeName: store.storeName,
+          cancellationStoreName: store.storeName,
+          severity,
+          dsrStatus: 'POOR',
+          dsrIssues,
+          dsrLoss,
+          dsrMetrics: {
+            conversionRate: dsrData.conversionRate || 'N/A',
+            billsPerformance: dsrData.billsPerformance || 'N/A',
+            quantityPerformance: dsrData.quantityPerformance || 'N/A',
+            walkIns: dsrData.walkIns || 'N/A',
+            lossOfSale: dsrData.lossOfSale || 'N/A',
+            absValue: dsrData.absValue || 'N/A',
+            abvValue: dsrData.abvValue || 'N/A'
+          },
+          staffPerformance: staffPerfData ? {
+            walkIns: staffPerfData.walkIns || 0,
+            bills: staffPerfData.bills || 0,
+            conversionRate: staffPerfData.conversionRate || 'N/A',
+            performanceStatus: staffPerfData.performanceStatus || 'N/A',
+            quantity: staffPerfData.quantity || 0,
+            lossOfSale: staffPerfData.lossOfSale || 0,
+            staffCount: staffPerfData.staffCount || 0,
+            staffIssues: staffPerfData.staffIssues || [],
+            staffDetails: staffPerfData.staffDetails || [],
+            lossOfSaleDetails: staffPerfData.lossOfSaleDetails || null,
+            attendance: staffPerfData.attendance || null
+          } : null,
+          totalCancellations: 0,
+          cancellationReasons: [],
+          actionPlan,
+          problemType: 'DSR_ONLY',
+          usedFallbackPlan: true
+        });
+      }
+    }
+    
+    console.log(`✅ Fallback plans generated for all ${remainingStores.length} remaining stores\n`);
     
     // Sort by severity
     const severityOrder = { 'CRITICAL': 1, 'HIGH': 2, 'MEDIUM': 3, 'LOW': 4 };

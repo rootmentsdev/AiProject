@@ -408,34 +408,76 @@ class DSRModel {
       cleaned = cleaned.substring(0, lastBrace + 1);
     }
     
+    // ✅ ULTIMATE FIX: Properly escape quotes inside JSON string values
+    // The issue: AI returns strings like "text with "quotes" inside"
+    // Solution: Parse line by line and fix quoted strings
+    
+    const lines = cleaned.split('\n');
+    const fixedLines = [];
+    
+    for (const line of lines) {
+      // Match pattern: "propertyName": "value with possible "nested" quotes"
+      // Strategy: Find lines with : " pattern and fix the value part
+      const colonQuoteIndex = line.indexOf('": "');
+      
+      if (colonQuoteIndex === -1) {
+        // No string value on this line, keep as-is
+        fixedLines.push(line);
+        continue;
+      }
+      
+      // Split into: prefix (up to ": ") + value part (after ": ")
+      const prefix = line.substring(0, colonQuoteIndex + 3); // includes ": "
+      const afterPrefix = line.substring(colonQuoteIndex + 4); // after ": "
+      
+      // Find where the string value ends (look for closing ", or "\n or "})
+      let endIndex = -1;
+      let depth = 0;
+      
+      for (let i = 0; i < afterPrefix.length; i++) {
+        const char = afterPrefix[i];
+        const nextChar = i < afterPrefix.length - 1 ? afterPrefix[i + 1] : '';
+        
+        if (char === '"' && (nextChar === ',' || nextChar === '\n' || nextChar === ' ' || nextChar === '}' || i === afterPrefix.length - 1)) {
+          endIndex = i;
+          break;
+        }
+      }
+      
+      if (endIndex === -1) {
+        // Couldn't find end, keep line as-is
+        fixedLines.push(line);
+        continue;
+      }
+      
+      // Extract the value content (between quotes)
+      const valueContent = afterPrefix.substring(0, endIndex);
+      const suffix = afterPrefix.substring(endIndex); // includes closing " and rest
+      
+      // Replace any double quotes in the value with single quotes
+      const fixedValue = valueContent.replace(/"/g, "'");
+      
+      // Reconstruct the line
+      fixedLines.push(prefix + '"' + fixedValue + suffix);
+    }
+    
+    cleaned = fixedLines.join('\n');
+    
     // Fix common JSON syntax errors
     // 1. Fix missing quotes around percentage values
     cleaned = cleaned.replace(/:\s*(\d+\.?\d*%)/g, ': "$1"');
     
-    // 2. Fix unquoted string values (but not numbers, booleans, or null)
-    cleaned = cleaned.replace(/:\s*([^",{\[\]}\s][^,}\]]*?)(\s*[,}\]])/g, (match, value, ending) => {
-      const trimmed = value.trim();
-      // Don't quote if it's already quoted, a number, boolean, null, or starts with { or [
-      if (trimmed.startsWith('"') || trimmed.startsWith('{') || trimmed.startsWith('[') || 
-          /^(true|false|null|-?\d+\.?\d*)$/.test(trimmed)) {
-        return match;
-      }
-      // Quote the value and escape any quotes inside
-      const escaped = trimmed.replace(/"/g, '\\"');
-      return `: "${escaped}"${ending}`;
-    });
-    
-    // 3. Fix trailing commas
+    // 2. Fix trailing commas
     cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
     
-    // 4. Fix missing commas between properties
+    // 3. Fix missing commas between properties
     cleaned = cleaned.replace(/"\s*\n\s*"/g, '",\n"');
     cleaned = cleaned.replace(/(\d+)\s*\n\s*"/g, '$1,\n"');
     cleaned = cleaned.replace(/"\s*\n\s*(\d+)/g, '",\n$1');
     cleaned = cleaned.replace(/}(\s*")/g, '},$1');
     cleaned = cleaned.replace(/](\s*")/g, '],$1');
     
-    // 5. Fix multiple consecutive commas
+    // 4. Fix multiple consecutive commas
     cleaned = cleaned.replace(/,+/g, ',');
     
     return cleaned;
@@ -446,48 +488,33 @@ class DSRModel {
     
     return {
       analysisSummary: {
-        totalStores: "12",
+        totalStores: "15",
+        badPerformingStores: "0",
         analysisPeriod: "December 2025",
-        overallPerformance: "Mixed performance across stores with some underperformers requiring attention",
-        keyFindings: "AI analysis encountered a formatting issue, but DSR data was successfully retrieved"
+        keyFindings: "AI analysis encountered a formatting issue. Unable to analyze stores automatically. Please retry the analysis."
       },
+      // ✅ FIX: Add badPerformingStores field that compareStores expects
+      badPerformingStores: [],
+      // Fallback data for compatibility
       storePerformance: [
         {
-          storeName: "Kottayam",
-          performance: "GOOD",
-          billsL2L: "33.33%",
-          qtyL2L: "58.97%",
+          storeName: "Analysis Pending",
+          performance: "UNKNOWN",
+          billsL2L: "N/A",
+          qtyL2L: "N/A",
           walkInL2L: "N/A",
           conversionRate: "N/A",
-          keyIssues: ["Data analysis pending"],
-          recommendations: ["Review AI response formatting"],
-          priority: "MEDIUM"
-        }
-      ],
-      topPerformers: [
-        {
-          storeName: "Perumbavoor",
-          reason: "Strong performance metrics",
-          metrics: "70.13% Bills L2L, 59.68% Qty L2L"
-        }
-      ],
-      underperformers: [
-        {
-          storeName: "Trissur",
-          issues: ["Negative L2L performance"],
-          impact: "Significant revenue decline",
-          actionPlan: ["Immediate performance review required"]
+          keyIssues: ["AI response formatting error"],
+          recommendations: ["Retry analysis"],
+          priority: "HIGH"
         }
       ],
       recommendations: {
-        immediate: ["Fix AI response formatting", "Review JSON parsing"],
-        shortTerm: ["Implement better error handling"],
-        longTerm: ["Optimize AI prompt for consistent JSON output"]
+        immediate: ["Retry the integrated analysis"],
+        shortTerm: ["AI will automatically retry with different model"],
+        longTerm: ["System will learn from this error"]
       },
-      riskAssessment: [
-        "Risk: AI response formatting issues - Mitigation: Enhanced JSON cleaning",
-        "Risk: Data analysis interruption - Mitigation: Fallback response system"
-      ]
+      errorNote: "JSON parsing failed. This is a temporary issue. Please retry the analysis - the system will automatically use a backup AI model."
     };
   }
 

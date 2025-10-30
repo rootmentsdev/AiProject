@@ -85,12 +85,18 @@ A store is considered BAD PERFORMING if it meets ANY of these conditions:
 
 ## 🧾 Expected JSON Output:
 
+**⚠️ CRITICAL JSON FORMATTING RULES:**
+- **DO NOT** use double quotes (") inside string values
+- **USE** single quotes (') instead of double quotes inside text
+- Example: Use "keyFindings": "Stores underperforming: 'Conversion < 80%', ABS < 1.8"
+- NOT: "keyFindings": "Stores underperforming: "Conversion < 80%", ABS < 1.8"
+
 {
   "analysisSummary": {
     "totalStores": "[number]",
     "badPerformingStores": "[number of bad performing stores]",
     "analysisPeriod": "December 2025",
-    "keyFindings": "[Summary of bad performing stores only]"
+    "keyFindings": "[Summary of bad performing stores - USE SINGLE QUOTES for emphasis]"
   },
   "badPerformingStores": [
     {
