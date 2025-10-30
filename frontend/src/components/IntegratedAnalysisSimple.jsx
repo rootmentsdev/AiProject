@@ -305,64 +305,6 @@ const IntegratedAnalysisSimple = () => {
         </div>
       )}
 
-      {/* AI Logic Explanation */}
-      {analysisData?.allStores && (
-        <div style={{ 
-          marginBottom: '32px', 
-          padding: '24px', 
-          backgroundColor: '#1e293b', 
-          borderRadius: '12px',
-          color: 'white'
-        }}>
-          <h4 style={{ 
-            fontSize: '18px', 
-            fontWeight: '700', 
-            color: '#ffffff', 
-            marginBottom: '20px',
-            textAlign: 'center'
-          }}>
-            🤖 How Your AI Model Thinks
-          </h4>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
-            gap: '16px' 
-          }}>
-            {[
-              { finds: 'High walk-ins, low conversion', concludes: 'Staff follow-up issue / poor selling skill' },
-              { finds: 'Low walk-ins, normal conversion', concludes: 'Marketing or visibility issue' },
-              { finds: 'High loss of sale with "size issue"', concludes: 'Inventory planning issue' },
-              { finds: 'High cancellations', concludes: 'Product quality or fulfillment issue' },
-              { finds: 'Staff absent on DSR date', concludes: 'Attendance and staffing issue' },
-              { finds: 'Low conversion with low staff count', concludes: 'Insufficient staffing issue' }
-            ].map((item, idx) => (
-              <div 
-                key={idx} 
-                style={{ 
-                  padding: '16px',
-                  backgroundColor: 'rgba(255,255,255,0.1)',
-                  borderRadius: '8px',
-                  borderLeft: '3px solid #3b82f6'
-                }}
-              >
-                <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '6px' }}>
-                  If AI finds...
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: '600', color: '#ffffff', marginBottom: '10px' }}>
-                  {item.finds}
-                </div>
-                <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>
-                  It concludes root cause as...
-                </div>
-                <div style={{ fontSize: '13px', fontWeight: '500', color: '#fbbf24' }}>
-                  {item.concludes}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Store List */}
       {analysisData?.allStores && (
         <div>
